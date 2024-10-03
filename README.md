@@ -1,6 +1,7 @@
 # Projet-API
 
 ## Réaliser Par : 
-FILALI Hatim__
-MAGHAFRI Achraf__
-BADIR Ikram__
+FILALI Hatim<br />
+MAGHAFRI Achraf<br />
+BADIR Ikram<br />
+KABBAJ Jad
