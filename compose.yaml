@@ -117,6 +117,62 @@ services:
       - 8080:8080
     networks:
       - tdl
+  
+  payment-service:
+    build:
+      context: payment-service
+      dockerfile: Dockerfile
+    volumes:
+      - ./payment-service:/app
+    ports:
+      - 5000:80
+    env_file:
+      - ./payment-service/.env
+    networks:
+      - tdl
+    depends_on:
+      payment-db:
+        condition: service_started
+      message-broker:
+        condition: service_healthy
+
+  payment-db:
+    image: postgres
+    env_file:
+      - ./payment-db/.env
+    volumes:
+      - ./payment-db/data:/var/lib/postgresql/data
+      - ./payment-db/sql:/docker-entrypoint-initdb.d
+    networks:
+      - tdl
+
+  betting-service:
+    build:
+      context: betting-service
+      dockerfile: Dockerfile
+    volumes:
+      - ./betting-service:/app
+    ports:
+      - 6000:80
+    env_file:
+      - ./betting-service/.env
+    networks:
+      - tdl
+    depends_on:
+      betting-db:
+        condition: service_started
+      message-broker:
+        condition: service_healthy
+
+  betting-db:
+    image: postgres
+    env_file:
+      - ./betting-db/.env
+    volumes:
+      - ./betting-db/data:/var/lib/postgresql/data
+      - ./betting-db/sql:/docker-entrypoint-initdb.d
+    networks:
+      - tdl
 
 networks:
   tdl:
