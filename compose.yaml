@@ -145,6 +145,34 @@ services:
       - ./payment-db/sql:/docker-entrypoint-initdb.d
     networks:
       - tdl
+      
+  odds-service:
+    build:
+      context: odds-service
+      dockerfile: Dockerfile
+    volumes:
+      - ./odds-service:/app
+    ports:
+      - 5000:80
+    env_file:
+      - ./odds-service/.env
+    networks:
+      - tdl
+    depends_on:
+      odds-db:
+        condition: service_started
+      message-broker:
+        condition: service_healthy
+
+  odds-db:
+    image: postgres
+    env_file:
+      - ./odds-db/.env
+    volumes:
+      - ./odds-db/data:/var/lib/postgresql/data
+      - ./odds-db/sql:/docker-entrypoint-initdb.d
+    networks:
+      - tdl
 
   betting-service:
     build:
