@@ -141,8 +141,7 @@ services:
     env_file:
       - ./payment-db/.env
     volumes:
-      - ./payment-db/data:/var/lib/postgresql/data
-      - ./payment-db/sql:/docker-entrypoint-initdb.d
+      - ./payment-db/sql/init.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
       - tdl
       
@@ -153,7 +152,7 @@ services:
     volumes:
       - ./odds-service:/app
     ports:
-      - 7000:80
+      - 2000:80
     env_file:
       - ./odds-service/.env
     networks:
@@ -169,8 +168,7 @@ services:
     env_file:
       - ./odds-db/.env
     volumes:
-      - ./odds-db/data:/var/lib/postgresql/data
-      - ./odds-db/sql:/docker-entrypoint-initdb.d
+      - ./odds-db/sql/init.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
       - tdl
 
@@ -181,7 +179,7 @@ services:
     volumes:
       - ./betting-service:/app
     ports:
-      - 6000:80
+      - 7000:80
     env_file:
       - ./betting-service/.env
     networks:
@@ -197,8 +195,7 @@ services:
     env_file:
       - ./betting-db/.env
     volumes:
-      - ./betting-db/data:/var/lib/postgresql/data
-      - ./betting-db/sql:/docker-entrypoint-initdb.d
+      - ./betting-db/sql/init.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
       - tdl
 
