@@ -29,7 +29,7 @@ Base = declarative_base()
 
 # Valid ENUM values for phase and state
 VALID_PHASES = {"Ligue", "Plays-off", "8èmes", "Quart-finale", "Demi-finale", "Finale"}
-VALID_STATES = {"En cours", "Fini"}
+VALID_STATES = {"En cours", "Fini", "En attente"}
 
 # SQLAlchemy model for the odds table
 class Odds(Base):
@@ -173,27 +173,60 @@ def delete_odds(odds_id: int, db: Session = Depends(get_db)):
     db.commit()
     return {"message": "Odds deleted successfully"}
 
-# Background task to update odds status
+# ✅ Update the state
 async def update_odds_status():
     while True:
         try:
             db = SessionLocal()
             current_time = datetime.now()
-            cutoff_time = current_time - timedelta(hours=1, minutes=00)
+            cutoff_time = current_time - timedelta(hours=1, minutes=45)
             
+            # Print current time and cutoff time for debugging
             print(f"\n=== Status Check at {current_time.strftime('%Y-%m-%d %H:%M:%S')} ===")
             print(f"Cutoff time: {cutoff_time.strftime('%Y-%m-%d %H:%M:%S')}")
-            # Find all odds entries that are "En cours" and older than cutoff time
-            outdated_odds = db.query(Odds).filter(
-                Odds.state == "En cours",
-                Odds.time < cutoff_time
+            
+            # Update matches that should be "En attente" (future matches)
+            future_matches = db.query(Odds).filter(
+                Odds.time > current_time,
+                Odds.state != "En attente"
             ).all()
             
-            # Update their status to "Fini"
-            for odds in outdated_odds:
-                odds.state = "Fini"
+            if future_matches:
+                print(f"Found {len(future_matches)} future matches to set as 'En attente':")
+                for odds in future_matches:
+                    print(f"- Updating ID {odds.id}: Match time {odds.time.strftime('%Y-%m-%d %H:%M:%S')} -> Status: {odds.state} → En attente")
+                    odds.state = "En attente"
+                
+            # Update matches that should be "En cours" (between start time and cutoff time)
+            current_matches = db.query(Odds).filter(
+                Odds.time <= current_time,
+                Odds.time > cutoff_time,
+                Odds.state != "En cours"
+            ).all()
             
-            db.commit()
+            if current_matches:
+                print(f"Found {len(current_matches)} matches to set as 'En cours':")
+                for odds in current_matches:
+                    print(f"- Updating ID {odds.id}: Match time {odds.time.strftime('%Y-%m-%d %H:%M:%S')} -> Status: {odds.state} → En cours")
+                    odds.state = "En cours"
+            
+            # Update matches that should be "Fini" (past cutoff time)
+            finished_matches = db.query(Odds).filter(
+                Odds.time <= cutoff_time,
+                Odds.state != "Fini"
+            ).all()
+            
+            if finished_matches:
+                print(f"Found {len(finished_matches)} matches to set as 'Fini':")
+                for odds in finished_matches:
+                    print(f"- Updating ID {odds.id}: Match time {odds.time.strftime('%Y-%m-%d %H:%M:%S')} -> Status: {odds.state} → Fini")
+                    odds.state = "Fini"
+            
+            if any([future_matches, current_matches, finished_matches]):
+                db.commit()
+                print("All updates committed successfully")
+            else:
+                print("No entries need updating")
             
         except Exception as e:
             print(f"Error updating odds status: {str(e)}")
