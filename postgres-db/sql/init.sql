@@ -52,3 +52,26 @@ VALUES
 ('2025-01-11 15:30:00', 'Ligue',1,2,'En cours', 1.8, 3.5, 2.5),
 ('2025-01-12 18:00:00', 'Quart-finale',0,1, 'Fini', 2.1, 2.8, 3.0),
 ('2025-01-13 20:45:00', 'Finale',3,3, 'En attente', 1.6, 2.9, 2.7);
+
+
+DO $$ 
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'odds_type_enum') THEN
+        CREATE TYPE odds_type_enum AS ENUM ('Simple', 'Combine');
+    END IF;
+END $$;
+
+CREATE TABLE IF NOT EXISTS bets (
+    id SERIAL PRIMARY KEY,
+    amount FLOAT NOT NULL,
+    odds FLOAT NOT NULL,
+    odds_type odds_type_enum NOT NULL,
+    time TIMESTAMP NOT NULL,
+    winnings FLOAT NOT NULL
+);
+
+INSERT INTO bets(amount,odds,odds_type,time,winnings)
+VALUES 
+(25,3.5, 'Simple','2025-01-12 18:00:00',87.5),
+(30,1.01, 'Combine','2025-01-12 18:00:00',30.3),
+(47,9.9, 'Simple','2025-01-12 18:00:00',465.3);
