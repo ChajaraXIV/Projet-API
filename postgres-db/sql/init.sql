@@ -1,4 +1,4 @@
--- Création du type ENUM pour payment_type
+-- Création payment
 DO $$ 
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'payment_type_enum') THEN
@@ -21,6 +21,7 @@ INSERT INTO payments (user_name, amount, payment_type, time) VALUES
     ('AchrafMagh', 150.0, 'retrait', '2025-01-10 17:48:00');
 
 
+-- Création odds
 DO $$ 
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'phase_enum') THEN
@@ -53,6 +54,7 @@ VALUES
 ('2025-01-12 18:00:00', 'Quart-finale',0,1, 'Fini', 2.1, 2.8, 3.0),
 ('2025-01-13 20:45:00', 'Finale',3,3, 'En attente', 1.6, 2.9, 2.7);
 
+-- Création bets
 
 DO $$ 
 BEGIN
