@@ -62,7 +62,6 @@ class OddsCreate(BaseModel):
     phase: str
     goals1: int
     goals2: int
-    state: str
     odds1: float
     odds2: float
     oddsx: float
@@ -94,31 +93,44 @@ class OddsUpdate(BaseModel):
 # ✅ Create a new Odds entry
 @app.post("/odds/add", response_model=OddsResponse)
 def create_odds(odds: OddsCreate, db: Session = Depends(get_db)):
-    # Validate phase and state
+    # Determine the state based on the match time
+    current_time = datetime.now()
+    cutoff_time = current_time - timedelta(hours=1, minutes=45)
+
+    if odds.time > current_time:
+        calculated_state = "En attente"
+    elif cutoff_time <= odds.time <= current_time :
+        calculated_state = "En cours"
+    else:
+        calculated_state = "Fini"
+
+    # Validate phase
     if odds.phase not in VALID_PHASES:
         raise HTTPException(
             status_code=400,
-            detail=(
-                f"Phase non reconnue: '{odds.phase}'. Les phases valides sont: {', '.join(VALID_PHASES)}."
-            )
-        )
-    if odds.state not in VALID_STATES:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"State non reconnu: '{odds.state}'. Les states valides sont: {', '.join(VALID_STATES)}."
-            )
+            detail=f"Phase non reconnue: '{odds.phase}'. Les phases valides sont: {', '.join(VALID_PHASES)}."
         )
 
     try:
-        # Create the new odds entry
-        new_odds = Odds(**odds.dict())
+        # Create the new odds entry with the calculated state
+        new_odds = Odds(
+            time=odds.time,
+            phase=odds.phase,
+            goals1=odds.goals1,
+            goals2=odds.goals2,
+            state=calculated_state,
+            odds1=odds.odds1,
+            odds2=odds.odds2,
+            oddsx=odds.oddsx
+        )
+
         db.add(new_odds)
         db.commit()
         db.refresh(new_odds)
         return new_odds
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Une erreur est survenue: {str(e)}")
+
 
 # ✅ Get all odds
 @app.get("/odds/all", response_model=list[OddsResponse])
