@@ -161,6 +161,25 @@ services:
       message-broker:
         condition: service_healthy
 
+  customer-service:
+    build:
+      context: customer-service
+      dockerfile: Dockerfile
+    volumes:
+      - ./customer-service:/app
+    ports:
+      - 7050:80
+    env_file:
+      - ./customer-service/.env
+    networks:
+      - tdl
+    depends_on:
+      postgres-db:
+        condition: service_started
+      message-broker:
+        condition: service_healthy
+
+
 networks:
   tdl:
     driver: bridge
