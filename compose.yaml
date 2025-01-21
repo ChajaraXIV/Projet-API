@@ -32,7 +32,7 @@ services:
     networks:
       - tdl
     depends_on:
-      auth-db:
+      postgres-db:
         condition: service_started
       message-broker:
         condition: service_healthy
@@ -50,7 +50,7 @@ services:
     networks:
       - tdl
     depends_on:
-      tasks-db:
+      postgres-db:
         condition: service_started
 
   # ws:
@@ -68,27 +68,6 @@ services:
   #       condition: service_healthy
   #   networks:
   #     - tdl
-
-  auth-db:
-    image: postgres
-    env_file:
-      - ./auth-db/.env
-    volumes:
-      # - ./auth-db/data:/var/lib/postgresql/data
-      - ./auth-db/sql:/docker-entrypoint-initdb.d
-    networks:
-      - tdl
-
-  tasks-db:
-    image: postgres
-    env_file:
-      - ./tasks-db/.env
-    volumes:
-      #- ./tasks-db/data:/var/lib/mysql
-      #- ./tasks-db/sql:/docker-entrypoint-initdb.d
-      - ./tasks-db/sql/init.sql:/docker-entrypoint-initdb.d/init.sql
-    networks:
-      - tdl
 
   message-broker:
     image: rabbitmq
@@ -131,17 +110,17 @@ services:
     networks:
       - tdl
     depends_on:
-      payment-db:
+      postgres-db:
         condition: service_started
       message-broker:
         condition: service_healthy
 
-  payment-db:
+  postgres-db:
     image: postgres
     env_file:
-      - ./payment-db/.env
+      - ./postgres-db/.env
     volumes:
-      - ./payment-db/sql/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./postgres-db/sql/init.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
       - tdl
       
@@ -158,19 +137,11 @@ services:
     networks:
       - tdl
     depends_on:
-      odds-db:
+      postgres-db:
         condition: service_started
       message-broker:
         condition: service_healthy
 
-  odds-db:
-    image: postgres
-    env_file:
-      - ./odds-db/.env
-    volumes:
-      - ./odds-db/sql/init.sql:/docker-entrypoint-initdb.d/init.sql
-    networks:
-      - tdl
 
   betting-service:
     build:
@@ -185,19 +156,10 @@ services:
     networks:
       - tdl
     depends_on:
-      betting-db:
+      postgres-db:
         condition: service_started
       message-broker:
         condition: service_healthy
-
-  betting-db:
-    image: postgres
-    env_file:
-      - ./betting-db/.env
-    volumes:
-      - ./betting-db/sql/init.sql:/docker-entrypoint-initdb.d/init.sql
-    networks:
-      - tdl
 
 networks:
   tdl:
