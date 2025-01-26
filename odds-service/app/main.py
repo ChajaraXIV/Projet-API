@@ -1,4 +1,5 @@
 import asyncio
+from zoneinfo import ZoneInfo
 from fastapi import FastAPI, HTTPException, Depends
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy import Column, Integer, String, Float, create_engine, DateTime, Enum
@@ -190,7 +191,7 @@ async def update_odds_status():
     while True:
         try:
             db = SessionLocal()
-            current_time = datetime.now()
+            current_time = datetime.now(ZoneInfo("Europe/Paris"))
             cutoff_time = current_time - timedelta(hours=1, minutes=45)
             
             # Print current time and cutoff time for debugging
