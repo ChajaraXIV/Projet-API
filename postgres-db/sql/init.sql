@@ -83,7 +83,8 @@ CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
     email VARCHAR(255) NOT NULL UNIQUE,
     password_hash VARCHAR(255) NOT NULL,
-    user_role VARCHAR(255) NOT NULL
+    user_role VARCHAR(255) NOT NULL,
+    connected BOOLEAN NOT NULL DEFAULT FALSE
 );
 
 -- Table tokens pour gérer les tokens d'acces et de rafraîchissement
@@ -92,7 +93,8 @@ CREATE TABLE IF NOT EXISTS tokens (
     user_id INT REFERENCES users(id) ON DELETE CASCADE,
     token VARCHAR(500) NOT NULL,
     token_type VARCHAR(50) NOT NULL,
-    expires_at TIMESTAMP NOT NULL
+    expires_at TIMESTAMP NOT NULL,
+    valid BOOLEAN NOT NULL
 );
 
 -- Table des profils clients

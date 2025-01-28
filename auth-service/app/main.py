@@ -7,6 +7,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
 import os
+import asyncio
 
 # Initialisation de FastAPI
 app = FastAPI()
@@ -19,7 +20,6 @@ DB_HOST = os.getenv("DB_HOST")
 DB_USER = os.getenv("DB_USER")
 DB_NAME = os.getenv("DB_NAME")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
-DATABASE_URL = os.getenv("DATABASE_URL")
 
 # Configuration JWT
 SECRET_KEY = os.getenv("SECRET_KEY")
@@ -55,6 +55,11 @@ class Token(BaseModel):
 
 class RefreshTokenRequest(BaseModel):
     refresh_token: str
+
+class LogoutRequest(BaseModel):
+    email: EmailStr
+    password: str
+    token: str
 
 # Utilitaires pour JWT
 def create_access_token(data: dict):
@@ -119,18 +124,15 @@ def create_admin_account():
 
 #get current user
 def get_current_user(authorization: str = Header(None)):
-    print(f"Authorization Header: {authorization}")
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Invalid authorization header")
     
     token = authorization.split(" ")[1]
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
-        print(f"Decoded Payload: {payload}")
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
     except jwt.InvalidTokenError as e:
-        print(f"Token Error: {e}")
         raise HTTPException(status_code=401, detail="Invalid token")
     
     if "sub" not in payload:
@@ -140,10 +142,132 @@ def get_current_user(authorization: str = Header(None)):
     
     return payload
 
-#appeler la fonction d'admin 
+#check les tokens 
+async def invalidate_expired_tokens():
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    try:
+        cur.execute(
+            """
+            UPDATE tokens SET valid = FALSE WHERE expires_at < NOW()
+            """
+        )
+        conn.commit()
+    finally:
+        cur.close()
+        conn.close()
+
+async def check_and_refresh_connected_users():
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    try:
+        # Obtenir tous les utilisateurs connectés
+        cur.execute(
+            """
+            SELECT id, email FROM users WHERE connected = TRUE
+            """
+        )
+        connected_users = cur.fetchall()
+
+        for user in connected_users:
+            user_id = user["id"]
+
+            # Vérifier si l'utilisateur a un access token valide
+            cur.execute(
+                """
+                SELECT token FROM tokens
+                WHERE user_id = %s AND token_type = 'access' AND valid = TRUE
+                """,
+                (user_id,)
+            )
+            access_token = cur.fetchone()
+
+            if not access_token:
+                # Si pas d'access token valide, vérifier le refresh token
+                cur.execute(
+                    """
+                    SELECT token FROM tokens
+                    WHERE user_id = %s AND token_type = 'refresh' AND valid = TRUE
+                    """,
+                    (user_id,)
+                )
+                refresh_token_record = cur.fetchone()
+
+                if refresh_token_record:
+                    refresh_token = refresh_token_record["token"]
+
+                    try:
+                        # Décoder le refresh token pour vérifier sa validité
+                        payload = jwt.decode(refresh_token, REFRESH_SECRET_KEY, algorithms=["HS256"])
+                        user_role = payload["role"]
+
+                        # Générer un nouveau access token
+                        new_access_token = create_access_token({"sub": str(user_id), "role": user_role})
+
+                        # Stocker le nouveau access token
+                        cur.execute(
+                            """
+                            INSERT INTO tokens (user_id, token, token_type, expires_at, valid)
+                            VALUES (%s, %s, %s, %s, TRUE)
+                            """,
+                            (
+                                user_id,
+                                new_access_token,
+                                "access",
+                                datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
+                            )
+                        )
+                        conn.commit()
+                        print(f"Access token refreshed for user {user['email']}")
+
+                    except jwt.ExpiredSignatureError:
+                        print(f"Refresh token expired for user {user['email']}")
+                    except jwt.InvalidTokenError:
+                        print(f"Invalid refresh token for user {user['email']}")
+                else:
+                    print(f"No valid refresh token found for user {user['email']}")
+                    cur.execute(
+                        """
+                        UPDATE users SET connected = FALSE WHERE user_id = %s
+                        """,
+                        (user_id,)
+                    )
+                    conn.commit()
+    finally:
+        cur.close()
+        conn.close()
+
+#appeler la fonction d'admin et check des tokens 
 @app.on_event("startup")
 async def startup_event():
     create_admin_account()
+    asyncio.create_task(periodic_invalidation())
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            UPDATE users SET connected = FALSE
+            """
+        )
+        cur.execute(
+            """
+            UPDATE tokens SET valid = FALSE WHERE token_type = 'access'
+            """
+        )
+        conn.commit()
+    finally:
+        cur.close()
+        conn.close()
+
+async def periodic_invalidation():
+    while True:
+        await invalidate_expired_tokens()
+        await check_and_refresh_connected_users()
+        await asyncio.sleep(10)
+
 
 # Routes
 @app.post("/auth/signup")
@@ -182,7 +306,7 @@ def signin(credentials: SignIn):
     try:
         cur.execute(
             """
-            SELECT id, password_hash, user_role FROM users WHERE email = %s
+            SELECT id, password_hash, user_role, connected FROM users WHERE email = %s
             """,
             (credentials.email,)
         )
@@ -190,17 +314,58 @@ def signin(credentials: SignIn):
         if not user or not verify_password(credentials.password, user["password_hash"]):
             raise HTTPException(status_code=401, detail="Invalid credentials")
         
-        # Génération des tokens
-        access_token = create_access_token({"sub": str(user["id"]), "role": user["user_role"]})
-        refresh_token = create_refresh_token({"sub": str(user["id"]), "role": user["user_role"]})
+        # Vérifier si l'utilisateur est déjà connecté
+        if user["connected"]:
+            raise HTTPException(status_code=400, detail="User already signed in")
         
-        # Stockage du refresh token
+        # Vérifier les sessions d'autres utilisateurs
         cur.execute(
             """
-            INSERT INTO tokens (user_id, token, token_type, expires_at)
-            VALUES (%s, %s, %s, %s)
+            SELECT token FROM tokens WHERE user_id <> %s AND token_type = 'access' AND valid = TRUE
             """,
-            (user["id"], refresh_token, "refresh", datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS))
+            (user["id"],)
+        )
+        other_access_tokens = cur.fetchall()
+        if other_access_tokens:
+            raise HTTPException(status_code=400, detail="Please logout from the current account first")
+        
+        # Génération des tokens
+        cur.execute(
+            """
+            SELECT token FROM tokens WHERE user_id = %s AND token_type = 'refresh' AND valid = TRUE
+            """,
+            (user["id"],)
+        )
+        refresh_token_record = cur.fetchone()
+        if refresh_token_record:
+            refresh_token = refresh_token_record["token"]
+        else:
+            refresh_token = create_refresh_token({"sub": str(user["id"]), "role": user["user_role"]})
+            # Stockage du refresh token
+            cur.execute(
+                """
+                INSERT INTO tokens (user_id, token, token_type, expires_at, valid)
+                VALUES (%s, %s, %s, %s, TRUE)
+                """,
+                (user["id"], refresh_token, "refresh", datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS))
+            )
+        
+        
+        access_token = create_access_token({"sub": str(user["id"]), "role": user["user_role"]})
+        cur.execute(
+            """
+            INSERT INTO tokens (user_id, token, token_type, expires_at, valid)
+            VALUES (%s, %s, %s, %s, TRUE)
+            """,
+            (user["id"], access_token, "access", datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+        )
+
+        # Mettre à jour l'état "connected" et stocker les tokens
+        cur.execute(
+            """
+            UPDATE users SET connected = TRUE WHERE id = %s
+            """,
+            (user["id"],)
         )
         conn.commit()
     finally:
@@ -216,6 +381,55 @@ def verify_token(current_user: dict = Depends(get_current_user)):
         "role": current_user.get("role"),
         "message": "Token is valid"
     }
+
+@app.post("/auth/logout")
+def logout(request: LogoutRequest):
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    try:
+        # Vérifier l'utilisateur avec email et mot de passe
+        cur.execute(
+            """
+            SELECT id, password_hash FROM users WHERE email = %s
+            """,
+            (request.email,)
+        )
+        user = cur.fetchone()
+        if not user or not verify_password(request.password, user["password_hash"]):
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+
+        # Vérifier si le token appartient bien à cet utilisateur
+        cur.execute(
+            """
+            SELECT token FROM tokens WHERE user_id = %s AND token = %s AND token_type = 'access' AND valid = TRUE
+            """,
+            (user["id"], request.token)
+        )
+        token_record = cur.fetchone()
+        if not token_record:
+            raise HTTPException(status_code=401, detail="Invalid or already logged-out token")
+
+        # Rendre les tokens de cet utilisateur invalides et mettre connected à FALSE
+        cur.execute(
+            """
+            UPDATE tokens SET valid = FALSE WHERE user_id = %s AND token_type = 'access'
+            """,
+            (user["id"],)
+        )
+        cur.execute(
+            """
+            UPDATE users SET connected = FALSE WHERE id = %s
+            """,
+            (user["id"],)
+        )
+        conn.commit()
+    finally:
+        cur.close()
+        conn.close()
+
+    return {"message": "Successfully logged out"}
+
 
 @app.post("/auth/refresh", response_model=Token)
 def refresh_token(request: RefreshTokenRequest):
@@ -258,6 +472,8 @@ def refresh_token(request: RefreshTokenRequest):
 @app.delete("/auth/delete/{user_id}")
 def delete_user(user_id: int, current_user: dict = Depends(get_current_user)):
     # Vérifier les permissions
+    if current_user["role"] == "admin" and current_user["sub"] == str(user_id):
+        raise HTTPException(status_code=403, detail="Cannot delete admin account")
     if current_user["role"] != "admin" and current_user["sub"] != str(user_id):
         raise HTTPException(status_code=403, detail="Not authorized to delete this user")
     
