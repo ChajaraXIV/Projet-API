@@ -1,3 +1,4 @@
+from zoneinfo import ZoneInfo
 from fastapi import FastAPI, HTTPException, Depends, Header
 from pydantic import BaseModel, EmailStr
 from passlib.hash import bcrypt
@@ -64,13 +65,13 @@ class LogoutRequest(BaseModel):
 # Utilitaires pour JWT
 def create_access_token(data: dict):
     to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    expire = datetime.now(ZoneInfo("Europe/Paris")) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm="HS256")
 
 def create_refresh_token(data: dict):
     to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    expire = datetime.now(ZoneInfo("Europe/Paris")) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, REFRESH_SECRET_KEY, algorithm="HS256")
 
@@ -216,7 +217,7 @@ async def check_and_refresh_connected_users():
                                 user_id,
                                 new_access_token,
                                 "access",
-                                datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
+                                datetime.now(ZoneInfo("Europe/Paris")) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
                             )
                         )
                         conn.commit()
@@ -347,7 +348,7 @@ def signin(credentials: SignIn):
                 INSERT INTO tokens (user_id, token, token_type, expires_at, valid)
                 VALUES (%s, %s, %s, %s, TRUE)
                 """,
-                (user["id"], refresh_token, "refresh", datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS))
+                (user["id"], refresh_token, "refresh", datetime.now(ZoneInfo("Europe/Paris")) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS))
             )
         
         
@@ -357,7 +358,7 @@ def signin(credentials: SignIn):
             INSERT INTO tokens (user_id, token, token_type, expires_at, valid)
             VALUES (%s, %s, %s, %s, TRUE)
             """,
-            (user["id"], access_token, "access", datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+            (user["id"], access_token, "access", datetime.now(ZoneInfo("Europe/Paris")) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
         )
 
         # Mettre à jour l'état "connected" et stocker les tokens
