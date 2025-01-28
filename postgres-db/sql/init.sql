@@ -82,21 +82,23 @@ VALUES
 CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
     email VARCHAR(255) NOT NULL UNIQUE,
-    password_hash VARCHAR(255) NOT NULL
+    password_hash VARCHAR(255) NOT NULL,
+    user_role VARCHAR(255) NOT NULL
 );
 
--- Table refresh_tokens pour gérer les tokens de rafraîchissement
-CREATE TABLE IF NOT EXISTS refresh_tokens (
+-- Table tokens pour gérer les tokens d'acces et de rafraîchissement
+CREATE TABLE IF NOT EXISTS tokens (
     id SERIAL PRIMARY KEY,
     user_id INT REFERENCES users(id) ON DELETE CASCADE,
     token VARCHAR(500) NOT NULL,
+    token_type VARCHAR(50) NOT NULL,
     expires_at TIMESTAMP NOT NULL
 );
 
 -- Table des profils clients
 CREATE TABLE IF NOT EXISTS customers (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     firstname VARCHAR(100) NOT NULL,
     lastname VARCHAR(100) NOT NULL,
     Birth_date DATE NOT NULL,

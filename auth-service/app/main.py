@@ -21,9 +21,9 @@ DB_NAME = os.getenv("DB_NAME")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-# Configuration (chargée depuis .env)
-SECRET_KEY = "your_secret_key"
-REFRESH_SECRET_KEY = "your_refresh_secret_key"
+# Configuration JWT
+SECRET_KEY = os.getenv("SECRET_KEY")
+REFRESH_SECRET_KEY = os.getenv("REFRESH_SECRET_KEY")
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 REFRESH_TOKEN_EXPIRE_DAYS = 7
 
@@ -43,6 +43,7 @@ def get_db_connection():
 class SignUp(BaseModel):
     email: EmailStr
     password: str
+    user_role : str
 
 class SignIn(BaseModel):
     email: EmailStr
@@ -50,6 +51,9 @@ class SignIn(BaseModel):
 
 class Token(BaseModel):
     access_token: str
+    refresh_token: str
+
+class RefreshTokenRequest(BaseModel):
     refresh_token: str
 
 # Utilitaires pour JWT
@@ -72,6 +76,75 @@ def hash_password(password: str) -> str:
 def verify_password(password: str, hashed_password: str) -> bool:
     return bcrypt.verify(password, hashed_password)
 
+#création du compte admin 
+def create_admin_account():
+    # Obtenez les variables d'environnement pour l'admin
+    admin_email = os.getenv("ADMIN_EMAIL")
+    admin_password = os.getenv("ADMIN_PASSWORD")
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    try:
+        # Vérifier si un compte admin existe déjà
+        cur.execute(
+            """
+            SELECT id FROM users WHERE email = %s
+            """,
+            (admin_email,)
+        )
+        if cur.fetchone():
+            print("Admin account already exists.")
+            return
+
+        # Hacher le mot de passe
+        hashed_password = hash_password(admin_password)
+
+        # Créer un compte admin
+        cur.execute(
+            """
+            INSERT INTO users (email, password_hash, user_role)
+            VALUES (%s, %s, %s)
+            """,
+            (admin_email, hashed_password, "admin")
+        )
+        conn.commit()
+        print("Admin account created successfully.")
+    except Exception as e:
+        print(f"Error creating admin account: {e}")
+        conn.rollback()
+    finally:
+        cur.close()
+        conn.close()
+
+#get current user
+def get_current_user(authorization: str = Header(None)):
+    print(f"Authorization Header: {authorization}")
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Invalid authorization header")
+    
+    token = authorization.split(" ")[1]
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+        print(f"Decoded Payload: {payload}")
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except jwt.InvalidTokenError as e:
+        print(f"Token Error: {e}")
+        raise HTTPException(status_code=401, detail="Invalid token")
+    
+    if "sub" not in payload:
+        raise HTTPException(status_code=400, detail="Invalid token payload: missing 'sub'")
+    if "role" not in payload:
+        raise HTTPException(status_code=400, detail="Invalid token payload: missing 'role'")
+    
+    return payload
+
+#appeler la fonction d'admin 
+@app.on_event("startup")
+async def startup_event():
+    create_admin_account()
+
 # Routes
 @app.post("/auth/signup")
 def signup(user: SignUp):
@@ -82,16 +155,19 @@ def signup(user: SignUp):
     try:
         cur.execute(
             """
-            INSERT INTO users (email, password_hash)
-            VALUES (%s, %s) RETURNING id
+            INSERT INTO users (email, password_hash,user_role)
+            VALUES (%s, %s, %s) RETURNING id
             """,
-            (user.email, hashed_password)
+            (user.email, hashed_password, user.user_role)
         )
         user_id = cur.fetchone()["id"]
         conn.commit()
-    except psycopg2.IntegrityError:
+    except psycopg2.IntegrityError as e:
         conn.rollback()
-        raise HTTPException(status_code=400, detail="User already exists")
+        if "unique constraint" in str(e):
+            raise HTTPException(status_code=400, detail="User already exists")
+        else:
+            raise HTTPException(status_code=500, detail="An unexpected error occurred")
     finally:
         cur.close()
         conn.close()
@@ -106,7 +182,7 @@ def signin(credentials: SignIn):
     try:
         cur.execute(
             """
-            SELECT id, password_hash FROM users WHERE email = %s
+            SELECT id, password_hash, user_role FROM users WHERE email = %s
             """,
             (credentials.email,)
         )
@@ -115,16 +191,16 @@ def signin(credentials: SignIn):
             raise HTTPException(status_code=401, detail="Invalid credentials")
         
         # Génération des tokens
-        access_token = create_access_token({"sub": user["id"]})
-        refresh_token = create_refresh_token({"sub": user["id"]})
+        access_token = create_access_token({"sub": str(user["id"]), "role": user["user_role"]})
+        refresh_token = create_refresh_token({"sub": str(user["id"]), "role": user["user_role"]})
         
         # Stockage du refresh token
         cur.execute(
             """
-            INSERT INTO refresh_tokens (user_id, token, expires_at)
-            VALUES (%s, %s, %s)
+            INSERT INTO tokens (user_id, token, token_type, expires_at)
+            VALUES (%s, %s, %s, %s)
             """,
-            (user["id"], refresh_token, datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS))
+            (user["id"], refresh_token, "refresh", datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS))
         )
         conn.commit()
     finally:
@@ -134,43 +210,94 @@ def signin(credentials: SignIn):
     return {"access_token": access_token, "refresh_token": refresh_token}
 
 @app.post("/auth/verify")
-def verify_token(authorization: str = Header(None)):
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Invalid authorization header")
-    
-    token = authorization.split(" ")[1]
-    try:
-        jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
-        return {"valid": True}
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token expired")
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid token")
+def verify_token(current_user: dict = Depends(get_current_user)):
+    return {
+        "user_id": current_user.get("sub"),
+        "role": current_user.get("role"),
+        "message": "Token is valid"
+    }
 
 @app.post("/auth/refresh", response_model=Token)
-def refresh_token(refresh_token: str):
+def refresh_token(request: RefreshTokenRequest):
+    refresh_token = request.refresh_token
     conn = get_db_connection()
     cur = conn.cursor()
 
     try:
         # Vérifier si le refresh token est valide
         payload = jwt.decode(refresh_token, REFRESH_SECRET_KEY, algorithms=["HS256"])
+        
+        # Vérifie que les champs nécessaires sont présents
+        if "sub" not in payload:
+            raise HTTPException(status_code=400, detail="Invalid token payload: missing 'sub'")
+        if "role" not in payload:
+            raise HTTPException(status_code=400, detail="Invalid token payload: missing 'role'")
+        
         user_id = payload["sub"]
+        user_role = payload["role"]
 
         cur.execute(
             """
-            SELECT token FROM refresh_tokens WHERE user_id = %s AND token = %s
+            SELECT token FROM tokens WHERE user_id = %s AND token = %s AND token_type = %s
             """,
-            (user_id, refresh_token)
+            (user_id, refresh_token, "refresh")
         )
+
         token_record = cur.fetchone()
         if not token_record:
             raise HTTPException(status_code=401, detail="Invalid refresh token")
 
         # Générer un nouveau access token
-        access_token = create_access_token({"sub": user_id})
+        access_token = create_access_token({"sub": str(user_id), "role": user_role})
     finally:
         cur.close()
         conn.close()
 
     return {"access_token": access_token, "refresh_token": refresh_token}
+
+@app.delete("/auth/delete/{user_id}")
+def delete_user(user_id: int, current_user: dict = Depends(get_current_user)):
+    # Vérifier les permissions
+    if current_user["role"] != "admin" and current_user["sub"] != str(user_id):
+        raise HTTPException(status_code=403, detail="Not authorized to delete this user")
+    
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    try:
+        # Vérifier si l'utilisateur existe
+        cur.execute(
+            """
+            SELECT id FROM users WHERE id = %s
+            """,
+            (user_id,)
+        )
+        user = cur.fetchone()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        # Supprimer tous les tokens associés
+        cur.execute(
+            """
+            DELETE FROM tokens WHERE user_id = %s
+            """,
+            (user_id,)
+        )
+
+        # Supprimer l'utilisateur
+        cur.execute(
+            """
+            DELETE FROM users WHERE id = %s
+            """,
+            (user_id,)
+        )
+
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+    finally:
+        cur.close()
+        conn.close()
+
+    return {"message": f"User with ID {user_id} has been deleted successfully"}
