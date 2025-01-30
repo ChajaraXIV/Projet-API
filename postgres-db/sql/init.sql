@@ -121,11 +121,35 @@ VALUES
     ('Red Star Belgrade', 'SRB'),
     ('Slovan Bratislava', 'SVK'),
     ('Young Boys', 'SUI'),
-    ('Shakhtar Donetsk', 'UKR');
+    ('Shakhtar Donetsk', 'UKR');              
 
+-- Table users pour le service Auth
+CREATE TABLE IF NOT EXISTS users (
+    id SERIAL PRIMARY KEY,
+    email VARCHAR(255) NOT NULL UNIQUE,
+    password_hash VARCHAR(255) NOT NULL,
+    user_role VARCHAR(255) NOT NULL,
+    connected BOOLEAN NOT NULL DEFAULT FALSE,
+    registration_token VARCHAR(500) 
+);
 
--- Création table combined_bets
-CREATE TABLE IF NOT EXISTS card (
-    id SERIAL PRIMARY KEY,                 
-    winnings FLOAT NOT NULL              
+-- Table tokens pour gérer les tokens d'acces et de rafraîchissement
+CREATE TABLE IF NOT EXISTS tokens (
+    id SERIAL PRIMARY KEY,
+    user_id INT REFERENCES users(id) ON DELETE CASCADE,
+    token VARCHAR(500) NOT NULL,
+    token_type VARCHAR(50) NOT NULL,
+    expires_at TIMESTAMP NOT NULL,
+    valid BOOLEAN NOT NULL
+);
+
+-- Table des profils clients
+CREATE TABLE IF NOT EXISTS customers (
+    username VARCHAR(50) PRIMARY KEY,
+    user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    firstname VARCHAR(100) NOT NULL,
+    lastname VARCHAR(100) NOT NULL,
+    Birth_date DATE NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
