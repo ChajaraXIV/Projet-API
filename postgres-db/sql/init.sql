@@ -55,7 +55,6 @@ VALUES
 ('2025-01-13 20:45:00', 'Finale',3,3, 'En attente', 1.6, 2.9, 2.7);
 
 -- Création bets
-
 DO $$ 
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'odds_type_enum') THEN
@@ -106,3 +105,89 @@ VALUES
 ('Charlie Davis', 1029384756102938, 'Visa', '2025-08-20', 654),
 ('Emily White', 5647382910564738, 'Mastercard', '2026-11-05', 987);
 
+
+-- Création de la table bookmakers
+CREATE TABLE bookmakers (
+    id SERIAL PRIMARY KEY,
+    first_name VARCHAR(255) NOT NULL,
+    last_name VARCHAR(255) NOT NULL
+);
+
+INSERT INTO bookmakers (first_name, last_name) VALUES ('John', 'Doe');
+
+-- Création table teams 
+CREATE TABLE IF NOT EXISTS teams (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    country VARCHAR(255) NOT NULL
+);
+
+INSERT INTO teams (name, country)
+VALUES
+    ('Arsenal', 'ENG'),
+    ('Aston Villa', 'ENG'),
+    ('Liverpool', 'ENG'),
+    ('Manchester City', 'ENG'),
+    ('Atlético de Madrid', 'ESP'),
+    ('Barcelona', 'ESP'),
+    ('Girona', 'ESP'),
+    ('Real Madrid', 'ESP'),
+    ('Bayern Munich', 'GER'),
+    ('Borussia Dortmund', 'GER'),
+    ('RB Leipzig', 'GER'),
+    ('Bayer Leverkusen', 'GER'),
+    ('Stuttgart', 'GER'),
+    ('Atalanta', 'ITA'),
+    ('Bologna', 'ITA'),
+    ('Inter Milan', 'ITA'),
+    ('Juventus', 'ITA'),
+    ('AC Milan', 'ITA'),
+    ('Brest', 'FRA'),
+    ('Lille', 'FRA'),
+    ('Monaco', 'FRA'),
+    ('Paris Saint-Germain', 'FRA'),
+    ('Salzburg', 'AUT'),
+    ('Sturm Graz', 'AUT'),
+    ('Feyenoord', 'NED'),
+    ('PSV Eindhoven', 'NED'),
+    ('Benfica', 'POR'),
+    ('Sporting CP', 'POR'),
+    ('Club Brugge', 'BEL'),
+    ('Dinamo Zagreb', 'CRO'),
+    ('Sparta Prague', 'CZE'),
+    ('Celtic', 'SCO'),
+    ('Red Star Belgrade', 'SRB'),
+    ('Slovan Bratislava', 'SVK'),
+    ('Young Boys', 'SUI'),
+    ('Shakhtar Donetsk', 'UKR');              
+
+-- Table users pour le service Auth
+CREATE TABLE IF NOT EXISTS users (
+    id SERIAL PRIMARY KEY,
+    email VARCHAR(255) NOT NULL UNIQUE,
+    password_hash VARCHAR(255) NOT NULL,
+    user_role VARCHAR(255) NOT NULL,
+    connected BOOLEAN NOT NULL DEFAULT FALSE,
+    registration_token VARCHAR(500) 
+);
+
+-- Table tokens pour gérer les tokens d'acces et de rafraîchissement
+CREATE TABLE IF NOT EXISTS tokens (
+    id SERIAL PRIMARY KEY,
+    user_id INT REFERENCES users(id) ON DELETE CASCADE,
+    token VARCHAR(500) NOT NULL,
+    token_type VARCHAR(50) NOT NULL,
+    expires_at TIMESTAMP NOT NULL,
+    valid BOOLEAN NOT NULL
+);
+
+-- Table des profils clients
+CREATE TABLE IF NOT EXISTS customers (
+    username VARCHAR(50) PRIMARY KEY,
+    user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    firstname VARCHAR(100) NOT NULL,
+    lastname VARCHAR(100) NOT NULL,
+    Birth_date DATE NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
