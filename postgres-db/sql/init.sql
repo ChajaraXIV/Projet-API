@@ -55,7 +55,6 @@ VALUES
 ('2025-01-13 20:45:00', 'Finale',3,3, 'En attente', 1.6, 2.9, 2.7);
 
 -- Création bets
-
 DO $$ 
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'odds_type_enum') THEN
@@ -77,6 +76,52 @@ VALUES
 (25,3.5, 'Simple','2025-01-12 18:00:00',87.5),
 (30,1.01, 'Combine','2025-01-12 18:00:00',30.3),
 (47,9.9, 'Simple','2025-01-12 18:00:00',465.3);
+
+-- Création table teams 
+CREATE TABLE IF NOT EXISTS teams (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    country VARCHAR(255) NOT NULL
+);
+
+INSERT INTO teams (name, country)
+VALUES
+    ('Arsenal', 'ENG'),
+    ('Aston Villa', 'ENG'),
+    ('Liverpool', 'ENG'),
+    ('Manchester City', 'ENG'),
+    ('Atlético de Madrid', 'ESP'),
+    ('Barcelona', 'ESP'),
+    ('Girona', 'ESP'),
+    ('Real Madrid', 'ESP'),
+    ('Bayern Munich', 'GER'),
+    ('Borussia Dortmund', 'GER'),
+    ('RB Leipzig', 'GER'),
+    ('Bayer Leverkusen', 'GER'),
+    ('Stuttgart', 'GER'),
+    ('Atalanta', 'ITA'),
+    ('Bologna', 'ITA'),
+    ('Inter Milan', 'ITA'),
+    ('Juventus', 'ITA'),
+    ('AC Milan', 'ITA'),
+    ('Brest', 'FRA'),
+    ('Lille', 'FRA'),
+    ('Monaco', 'FRA'),
+    ('Paris Saint-Germain', 'FRA'),
+    ('Salzburg', 'AUT'),
+    ('Sturm Graz', 'AUT'),
+    ('Feyenoord', 'NED'),
+    ('PSV Eindhoven', 'NED'),
+    ('Benfica', 'POR'),
+    ('Sporting CP', 'POR'),
+    ('Club Brugge', 'BEL'),
+    ('Dinamo Zagreb', 'CRO'),
+    ('Sparta Prague', 'CZE'),
+    ('Celtic', 'SCO'),
+    ('Red Star Belgrade', 'SRB'),
+    ('Slovan Bratislava', 'SVK'),
+    ('Young Boys', 'SUI'),
+    ('Shakhtar Donetsk', 'UKR');              
 
 -- Table users pour le service Auth
 CREATE TABLE IF NOT EXISTS users (
