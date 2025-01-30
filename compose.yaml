@@ -16,6 +16,10 @@ services:
         condition: service_started
       betting-service:
         condition: service_started
+      bookmaker-service:
+        condition: service_started
+      card-service:
+        condition: service_started
       customer-service:
         condition: service_started
       notification-service:
