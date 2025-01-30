@@ -1,3 +1,4 @@
+from zoneinfo import ZoneInfo
 from fastapi import FastAPI, HTTPException, Depends
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy import Column, Integer, String, Float, create_engine, DateTime
@@ -53,7 +54,6 @@ class PaymentCreate(BaseModel):
     user_name: str
     amount: float
     payment_type: str
-    time: datetime
 
 class PaymentResponse(BaseModel):
     id: int
@@ -126,9 +126,15 @@ def create_payment(payment: PaymentCreate, db: Session = Depends(get_db)):
             detail="Pour 'pertes', le montant doit être inférieur à 30000."
         )
 
+    current_time = datetime.now(ZoneInfo("Europe/Paris"))
     try:
         # Create the new payment entry
-        new_payment = Payment(**payment.dict())
+        new_payment = Payment(
+        user_name = payment.user_name,
+        amount = payment.amount,
+        payment_type = payment.payment_type,
+        time = current_time
+        )
         db.add(new_payment)
         db.commit()
         db.refresh(new_payment)
