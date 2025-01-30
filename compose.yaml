@@ -14,8 +14,19 @@ services:
     depends_on:
       auth-service:
         condition: service_started
+      betting-service:
+        condition: service_started
+      customer-service:
+        condition: service_started
+      notification-service:
+        condition: service_started
+      odds-service:
+        condition: service_started
+      payment-service:
+        condition: service_started
       message-broker:
         condition: service_healthy
+
 
   auth-service:
     build:
