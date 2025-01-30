@@ -12,8 +12,6 @@ services:
     networks:
       - tdl
     depends_on:
-      # tasks-service:
-      #   condition: service_started
       auth-service:
         condition: service_started
       message-broker:
