@@ -24,7 +24,6 @@ def consume_messages(queue_name):
         global latest_message
         latest_message = msg  
         print("Received:", msg) 
-
     broker.consume_messages(queue_name, process_message)
 
 @app.get("/")
@@ -34,6 +33,7 @@ def read_root():
 @app.get("/customer")
 def get_latest_message():
     return {"latest_message": latest_message}  
+
 @app.on_event("startup")
 async def startup_event():
     loop = asyncio.get_running_loop()

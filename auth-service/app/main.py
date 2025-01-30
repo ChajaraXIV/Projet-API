@@ -9,6 +9,7 @@ from psycopg2.extras import RealDictCursor
 import os
 import asyncio
 from .message_broker import AMQPBroker
+from fastapi.responses import HTMLResponse
 
 # Initialisation de FastAPI
 app = FastAPI()
@@ -26,8 +27,6 @@ def publish_message(queue_name, message):
     broker.declare_queue(queue_name)
     broker.publish_message(queue_name, message)
 
-
-
 # Configuration de la base de données
 DB_HOST = os.getenv("DB_HOST")
 DB_USER = os.getenv("DB_USER")
@@ -37,6 +36,7 @@ DB_PASSWORD = os.getenv("DB_PASSWORD")
 # Configuration JWT
 SECRET_KEY = os.getenv("SECRET_KEY")
 REFRESH_SECRET_KEY = os.getenv("REFRESH_SECRET_KEY")
+REGISTRATION_SECRET_KEY = os.getenv("REGISTRATION_SECRET_KEY")
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 REFRESH_TOKEN_EXPIRE_DAYS = 7
 
@@ -86,6 +86,11 @@ def create_refresh_token(data: dict):
     expire = datetime.now(ZoneInfo("Europe/Paris")) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, REFRESH_SECRET_KEY, algorithm="HS256")
+
+def create_registration_token(data: dict):
+    to_encode = data.copy()
+    return jwt.encode(to_encode, REGISTRATION_SECRET_KEY, algorithm="HS256")
+
 
 # Hachage de mot de passe
 def hash_password(password: str) -> str:
@@ -292,21 +297,20 @@ def signup(user: SignUp):
     try:
         cur.execute(
             """
-            INSERT INTO users (email, password_hash,user_role)
+            INSERT INTO users (email, password_hash, user_role)
             VALUES (%s, %s, %s) RETURNING id
             """,
             (user.email, hashed_password, user.user_role)
         )
-        user_id = cur.fetchone()["id"]
         conn.commit()
 
-        # Publier un message pour le service "Customer"
+        # Publier un message pour le service "Notification"
         message = {
-            "user_id": user_id,
             "email": user.email,
-            "role": user.user_role
+            "subject": "Confirmez votre inscription",
+            "token": "hhhh"
         }
-        publish_message("customer_queue", message)
+        publish_message("notification_queue", message)
 
     except psycopg2.IntegrityError as e:
         conn.rollback()
@@ -318,7 +322,7 @@ def signup(user: SignUp):
         cur.close()
         conn.close()
 
-    return {"message": "Account created successfully"}
+    return {"message": "Account created successfully, please check your email for confirmation."}
 
 @app.post("/auth/signin", response_model=Token)
 def signin(credentials: SignIn):
@@ -328,7 +332,7 @@ def signin(credentials: SignIn):
     try:
         cur.execute(
             """
-            SELECT id, password_hash, user_role, connected FROM users WHERE email = %s
+            SELECT id, password_hash, user_role, connected, registration_token FROM users WHERE email = %s
             """,
             (credentials.email,)
         )
@@ -336,6 +340,10 @@ def signin(credentials: SignIn):
         if not user or not verify_password(credentials.password, user["password_hash"]):
             raise HTTPException(status_code=401, detail="Invalid credentials")
         
+        # Check if the user has verified their email (registration token should be NULL)
+        if user["registration_token"] is None:
+            raise HTTPException(status_code=403, detail="Email not verified. Please check your email.")
+
         # Vérifier si l'utilisateur est déjà connecté
         if user["connected"]:
             raise HTTPException(status_code=400, detail="User already signed in")
@@ -539,3 +547,121 @@ def delete_user(user_id: int, current_user: dict = Depends(get_current_user)):
         conn.close()
 
     return {"message": f"User with ID {user_id} has been deleted successfully"}
+
+@app.get("/auth/verify-email/{email}", response_class=HTMLResponse)
+def verify_email(email: str):
+    """Generate a registration token and show a confirmation page."""
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    try:
+        # Check if user exists
+        cur.execute("SELECT id FROM users WHERE email = %s", (email,))
+        user = cur.fetchone()
+
+        if not user:
+            return HTMLResponse(content="<h2>User not found</h2>", status_code=404)
+
+        # Generate a JWT registration token
+        registration_token = jwt.encode({"sub": email}, REGISTRATION_SECRET_KEY, algorithm="HS256")
+
+        # Store the registration token in the database
+        cur.execute(
+            """
+            UPDATE users SET registration_token = %s WHERE id = %s
+            """,
+            (registration_token, user["id"])
+        )
+        conn.commit()
+
+        # Return a confirmation HTML page
+        html_content = f"""
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Email Verified</title>
+            <style>
+                body {{
+                    font-family: Arial, sans-serif;
+                    text-align: center;
+                    padding: 50px;
+                    background-color: #f4f4f4;
+                }}
+                .container {{
+                    background: white;
+                    padding: 20px;
+                    border-radius: 8px;
+                    box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.1);
+                    max-width: 500px;
+                    margin: auto;
+                }}
+                h2 {{
+                    color: #007bff;
+                }}
+                p {{
+                    font-size: 16px;
+                    color: #333;
+                }}
+                .success {{
+                    color: green;
+                    font-weight: bold;
+                }}
+                .footer {{
+                    font-size: 12px;
+                    color: #888;
+                    margin-top: 20px;
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h2>Email Verified Successfully 🎉</h2>
+                <p class="success">Your email ({email}) has been successfully verified.</p>
+                <p>You can now log in to your account.</p>
+                <p class="footer">The Real Deal Team</p>
+            </div>
+        </body>
+        </html>
+        """
+
+        return HTMLResponse(content=html_content)
+
+    except Exception as e:
+        conn.rollback()
+        return HTMLResponse(content=f"<h2>An error occurred: {str(e)}</h2>", status_code=500)
+
+    finally:
+        cur.close()
+        conn.close()
+
+@app.get("/auth/validate-registration-token/{token}")
+def validate_registration_token(token: str):
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    try:
+        # Decode the JWT token
+        payload = jwt.decode(token, REGISTRATION_SECRET_KEY, algorithms=["HS256"])
+        email = payload.get("sub")
+
+        if not email:
+            raise HTTPException(status_code=400, detail="Invalid token")
+
+        # Check if the token exists in the database
+        cur.execute("SELECT id FROM users WHERE email = %s AND registration_token = %s", (email, token))
+        user = cur.fetchone()
+
+        if not user:
+            raise HTTPException(status_code=400, detail="Invalid or expired token")
+
+        return {"message": "Token is valid", "email": email}
+
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=400, detail="Token expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=400, detail="Invalid token")
+    finally:
+        cur.close()
+        conn.close()

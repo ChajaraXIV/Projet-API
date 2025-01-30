@@ -84,7 +84,8 @@ CREATE TABLE IF NOT EXISTS users (
     email VARCHAR(255) NOT NULL UNIQUE,
     password_hash VARCHAR(255) NOT NULL,
     user_role VARCHAR(255) NOT NULL,
-    connected BOOLEAN NOT NULL DEFAULT FALSE
+    connected BOOLEAN NOT NULL DEFAULT FALSE,
+    registration_token VARCHAR(500) 
 );
 
 -- Table tokens pour gérer les tokens d'acces et de rafraîchissement

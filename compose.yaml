@@ -147,6 +147,22 @@ services:
       message-broker:
         condition: service_healthy
 
+  notification-service:
+    build:
+      context: notification-service
+      dockerfile: Dockerfile
+    volumes:
+      - ./notification-service:/app
+    env_file:
+      - ./notification-service/.env
+    networks:
+      - tdl
+    depends_on:
+      postgres-db:
+        condition: service_started
+      message-broker:
+        condition: service_healthy
+
 
 networks:
   tdl:
