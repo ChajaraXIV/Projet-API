@@ -77,3 +77,34 @@ VALUES
 (25,3.5, 'Simple','2025-01-12 18:00:00',87.5),
 (30,1.01, 'Combine','2025-01-12 18:00:00',30.3),
 (47,9.9, 'Simple','2025-01-12 18:00:00',465.3);
+
+-- Table users pour le service Auth
+CREATE TABLE IF NOT EXISTS users (
+    id SERIAL PRIMARY KEY,
+    email VARCHAR(255) NOT NULL UNIQUE,
+    password_hash VARCHAR(255) NOT NULL,
+    user_role VARCHAR(255) NOT NULL,
+    connected BOOLEAN NOT NULL DEFAULT FALSE,
+    registration_token VARCHAR(500) 
+);
+
+-- Table tokens pour gérer les tokens d'acces et de rafraîchissement
+CREATE TABLE IF NOT EXISTS tokens (
+    id SERIAL PRIMARY KEY,
+    user_id INT REFERENCES users(id) ON DELETE CASCADE,
+    token VARCHAR(500) NOT NULL,
+    token_type VARCHAR(50) NOT NULL,
+    expires_at TIMESTAMP NOT NULL,
+    valid BOOLEAN NOT NULL
+);
+
+-- Table des profils clients
+CREATE TABLE IF NOT EXISTS customers (
+    username VARCHAR(50) PRIMARY KEY,
+    user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    firstname VARCHAR(100) NOT NULL,
+    lastname VARCHAR(100) NOT NULL,
+    Birth_date DATE NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
