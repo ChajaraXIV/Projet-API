@@ -100,7 +100,7 @@ CREATE TABLE IF NOT EXISTS tokens (
 
 -- Table des profils clients
 CREATE TABLE IF NOT EXISTS customers (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    username VARCHAR(50) PRIMARY KEY,
     user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     firstname VARCHAR(100) NOT NULL,
     lastname VARCHAR(100) NOT NULL,
