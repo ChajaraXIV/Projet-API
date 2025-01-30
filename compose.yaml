@@ -12,8 +12,8 @@ services:
     networks:
       - tdl
     depends_on:
-      tasks-service:
-        condition: service_started
+      # tasks-service:
+      #   condition: service_started
       auth-service:
         condition: service_started
       message-broker:
@@ -37,40 +37,8 @@ services:
       message-broker:
         condition: service_healthy
 
-  tasks-service:
-    build:
-      context: tasks-service
-      dockerfile: Dockerfile
-    volumes:
-      - ./tasks-service:/app
-    ports:
-      - 3000:80
-    env_file:
-      - ./tasks-service/.env
-    networks:
-      - tdl
-    depends_on:
-      postgres-db:
-        condition: service_started
-
-  # ws:
-  #   image: node:alpine
-  #   command: sh -c "npm i && npm run dev"
-  #   working_dir: /usr/src/app
-  #   volumes:
-  #     - ./ws:/usr/src/app
-  #   ports:
-  #     - 3080:3000
-  #   env_file:
-  #     - ./ws/.env
-  #   depends_on:
-  #     message-broker:
-  #       condition: service_healthy
-  #   networks:
-  #     - tdl
-
   message-broker:
-    image: rabbitmq
+    image: rabbitmq:3-management
     env_file:
       - ./message-broker/.env
     healthcheck:
@@ -79,8 +47,8 @@ services:
       timeout: 10s
       retries: 3
     ports:
-      - 5673:5672
-      - 15673:15672
+      - 5672:5672
+      - 15672:15672
     volumes:
       - ./message-broker/data/:/var/lib/rabbitmq/
       - ./message-broker/log/:/var/log/rabbitmq

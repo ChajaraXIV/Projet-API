@@ -6,15 +6,27 @@ from datetime import datetime, timedelta
 import jwt
 import psycopg2
 from psycopg2.extras import RealDictCursor
-from dotenv import load_dotenv
 import os
 import asyncio
+from .message_broker import AMQPBroker
 
 # Initialisation de FastAPI
 app = FastAPI()
 
-# Charger les variables d'environnement depuis .env
-load_dotenv()
+# Configuration du RABBITMQ
+RABBITMQ_DEFAULT_USER = os.getenv("RABBITMQ_DEFAULT_USER")
+RABBITMQ_DEFAULT_PASS = os.getenv("RABBITMQ_DEFAULT_PASS")
+RABBITMQ_HOST = os.getenv("RABBITMQ_HOST")
+
+# Initialize the broker
+broker = AMQPBroker(host=RABBITMQ_HOST, user=RABBITMQ_DEFAULT_USER, password=RABBITMQ_DEFAULT_PASS)
+broker.connect()
+
+def publish_message(queue_name, message):
+    broker.declare_queue(queue_name)
+    broker.publish_message(queue_name, message)
+
+
 
 # Configuration de la base de données
 DB_HOST = os.getenv("DB_HOST")
@@ -287,6 +299,15 @@ def signup(user: SignUp):
         )
         user_id = cur.fetchone()["id"]
         conn.commit()
+
+        # Publier un message pour le service "Customer"
+        message = {
+            "user_id": user_id,
+            "email": user.email,
+            "role": user.user_role
+        }
+        publish_message("customer_queue", message)
+
     except psycopg2.IntegrityError as e:
         conn.rollback()
         if "unique constraint" in str(e):
