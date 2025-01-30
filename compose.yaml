@@ -138,6 +138,17 @@ services:
       message-broker:
         condition: service_healthy
 
+  bookmaker-service:
+    build:
+      context: bookmaker-service
+      dockerfile: Dockerfile
+    volumes:
+      - ./bookmaker-service:/app
+    ports:
+      - 4444:80
+    env_file:
+      - ./bookmaker-service/.env
+
   customer-service:
     build:
       context: customer-service
