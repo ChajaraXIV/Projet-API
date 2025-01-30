@@ -77,3 +77,13 @@ VALUES
 (25,3.5, 'Simple','2025-01-12 18:00:00',87.5),
 (30,1.01, 'Combine','2025-01-12 18:00:00',30.3),
 (47,9.9, 'Simple','2025-01-12 18:00:00',465.3);
+
+
+-- Création de la table bookmakers
+CREATE TABLE bookmakers (
+    id SERIAL PRIMARY KEY,
+    first_name VARCHAR(255) NOT NULL,
+    last_name VARCHAR(255) NOT NULL
+);
+
+INSERT INTO bookmakers (first_name, last_name) VALUES ('John', 'Doe');
