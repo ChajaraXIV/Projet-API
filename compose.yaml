@@ -119,6 +119,24 @@ services:
       message-broker:
         condition: service_healthy
 
+  card-service:
+    build:
+      context: card-service
+      dockerfile: Dockerfile
+    volumes:
+      - ./card-service:/app
+    ports:
+      - 4500:80
+    env_file:
+      - ./card-service/.env
+    networks:
+      - tdl
+    depends_on:
+      postgres-db:
+        condition: service_started
+      message-broker:
+        condition: service_healthy
+
 
   betting-service:
     build:

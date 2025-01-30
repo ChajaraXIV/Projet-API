@@ -75,7 +75,35 @@ INSERT INTO bets(amount,odds,odds_type,time,winnings)
 VALUES 
 (25,3.5, 'Simple','2025-01-12 18:00:00',87.5),
 (30,1.01, 'Combine','2025-01-12 18:00:00',30.3),
+(10,1, 'Combine','2025-01-12 18:00:00',10),
 (47,9.9, 'Simple','2025-01-12 18:00:00',465.3);
+
+--Creation table card 
+DO $$ 
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'card_type_enum') THEN
+        CREATE TYPE card_type_enum AS ENUM ('Visa', 'Mastercard', 'Amex', 'Discover');
+    END IF;
+END $$;
+
+CREATE TABLE IF NOT EXISTS card (
+    id SERIAL PRIMARY KEY,  
+    full_name VARCHAR(255) NOT NULL,            
+    numbers BIGINT NOT NULL,               
+    card_type card_type_enum NOT NULL,       
+    validity DATE NOT NULL,               
+    crypto INT NOT NULL               
+);
+
+-- Insertions de données dans la table card
+INSERT INTO card (full_name, numbers, card_type, validity, crypto)
+VALUES 
+('John Doe', 1234567812345678, 'Visa', '2025-12-31', 123),
+('Jane Smith', 8765432187654321, 'Mastercard', '2026-06-30', 456),
+('Alice Johnson', 5678901256789012, 'Amex', '2024-09-15', 789),
+('Bob Brown', 4321876543218765, 'Discover', '2027-03-01', 321),
+('Charlie Davis', 1029384756102938, 'Visa', '2025-08-20', 654),
+('Emily White', 5647382910564738, 'Mastercard', '2026-11-05', 987);
 
 
 -- Création de la table bookmakers
