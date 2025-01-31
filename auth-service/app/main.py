@@ -342,7 +342,7 @@ def signup(user: SignUp):
         cur.close()
         conn.close()
 
-    return {"message": "Account created successfully. Check your email for confirmation."}
+    return {"message": "Account created successfully. Check your email for confirmation.", "user_id":user_id}
 
 @app.post("/auth/add-bookmaker")
 def add_bookmaker(user: SignUp, current_user: dict = Depends(get_current_user)):
