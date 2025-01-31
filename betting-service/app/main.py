@@ -1,12 +1,13 @@
-from datetime import datetime
-from typing import Optional
 from fastapi import FastAPI, HTTPException, Depends
 from sqlalchemy.orm import sessionmaker, Session
-from sqlalchemy import Column, Integer, String, Float, DateTime, create_engine
+from sqlalchemy import Column, Integer, String, Float, create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from pydantic import BaseModel
 from dotenv import load_dotenv
 import os
+import threading
+import pika
+from app.publisher import publish_message
 
 # Load environment variables
 load_dotenv()
@@ -31,40 +32,25 @@ def get_db():
 # SQLAlchemy model for the database table
 Base = declarative_base()
 
-VALID_ODDS_TYPE = {"Simple", "Combine"}
-
-class Bets(Base):
-    __tablename__ = "bets"
+class Betting(Base):
+    __tablename__ = "bettings"
 
     id = Column(Integer, primary_key=True, index=True)
+    match = Column(String, nullable=False)
     amount = Column(Float, nullable=False)
     odds = Column(Float, nullable=False)
-    odds_type = Column(String, nullable=False)
-    time = Column(DateTime, default=datetime.utcnow, nullable=False)
-    winnings = Column(Float, nullable=False)
 
 # Pydantic models for request and response validation
 class BettingCreate(BaseModel):
+    match: str
     amount: float
     odds: float
-    odds_type: str
 
 class BettingResponse(BaseModel):
     id: int
+    match: str
     amount: float
     odds: float
-    odds_type: str
-    time: datetime
-    winnings: float
-
-    class Config:
-        orm_mode = True
-
-# Pydantic model for updating a betting
-class BettingUpdate(BaseModel):
-    amount: Optional[float] = None
-    odds: Optional[float] = None
-    odds_type: Optional[str] = None
 
     class Config:
         orm_mode = True
@@ -77,85 +63,99 @@ def read_root():
     return {"message": "Welcome to the Betting Service"}
 
 # Create a new betting
-@app.post("/bets/add", response_model=BettingResponse)
-def create_bet(bet: BettingCreate, db: Session = Depends(get_db)):
-    # Validate odds_type
-    if bet.odds_type not in VALID_ODDS_TYPE:
-        raise HTTPException(status_code=400, detail="Invalid odds_type. Must be 'Simple' or 'Combine'.")
-
-    # Calculate winnings and current time
-    winnings = bet.amount * bet.odds
-    time = datetime.now()
-
-    # Create new bet record
-    new_bet = Bets(
-        amount=bet.amount,
-        odds=bet.odds,
-        odds_type=bet.odds_type,
-        time=time,
-        winnings=winnings
-    )
-    db.add(new_bet)
-    db.commit()
-    db.refresh(new_bet)
-
-    return new_bet
-
-
-# Get all betting
-@app.get("/bets/all", response_model=list[BettingResponse])
-def read_betting(db: Session = Depends(get_db)):
+@app.post("/bettings/add", response_model=BettingResponse)
+def create_betting(betting: BettingCreate, db: Session = Depends(get_db)):
     try:
-        bettings = db.query(Bets).all()
+        new_betting = Betting(**betting.dict())
+        db.add(new_betting)
+        db.commit()
+        db.refresh(new_betting)
+
+        # Publication du message dans RabbitMQ
+        publish_message('betting_queue', {
+            'event': 'bet_placed',
+            'bet_id': new_betting.id,
+            'match': new_betting.match,
+            'amount': new_betting.amount,
+            'odds': new_betting.odds
+        })
+
+        return new_betting
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+
+# Get all bettings
+@app.get("/bettings/all", response_model=list[BettingResponse])
+def read_bettings(db: Session = Depends(get_db)):
+    try:
+        bettings = db.query(Betting).all()
         return bettings
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
 # Get a specific betting by ID
-@app.get("/bets/{bets_id}", response_model=BettingResponse)
-def read_betting(bets_id: int, db: Session = Depends(get_db)):
-    betting = db.query(Bets).filter(Bets.id == bets_id).first()
+@app.get("/bettings/{betting_id}", response_model=BettingResponse)
+def read_betting(betting_id: int, db: Session = Depends(get_db)):
+    betting = db.query(Betting).filter(Betting.id == betting_id).first()
     if not betting:
         raise HTTPException(status_code=404, detail="Betting not found")
     return betting
 
-# Update an existing betting
-@app.put("/bets/update/{bets_id}", response_model=BettingResponse)
-def update_bet(bets_id: int, bet_update: BettingUpdate, db: Session = Depends(get_db)):
-    # Retrieve the existing bet
-    bet = db.query(Bets).filter(Bets.id == bets_id).first()
-    if not bet:
+# Update a specific betting by ID
+@app.put("/bettings/update/{betting_id}", response_model=BettingResponse)
+def update_betting(betting_id: int, updated_betting: BettingCreate, db: Session = Depends(get_db)):
+    betting = db.query(Betting).filter(Betting.id == betting_id).first()
+    if not betting:
         raise HTTPException(status_code=404, detail="Betting not found")
-
-    # Update the bet attributes
-    if bet_update.amount is not None:
-        bet.amount = bet_update.amount
-
-    if bet_update.odds is not None:
-        bet.odds = bet_update.odds
-
-    if bet_update.odds_type is not None:
-        if bet_update.odds_type not in VALID_ODDS_TYPE:
-            raise HTTPException(status_code=400, detail="Invalid odds_type. Must be 'Simple' or 'Combine'.")
-        bet.odds_type = bet_update.odds_type
-
-    # Recalculate winnings if amount or odds changed
-    if bet_update.amount is not None or bet_update.odds is not None:
-        bet.winnings = bet.amount * bet.odds
-
-    # Commit the changes to the database
+    for key, value in updated_betting.dict().items():
+        setattr(betting, key, value)
     db.commit()
-    db.refresh(bet)
+    db.refresh(betting)
 
-    return bet
+    # Publication du message dans RabbitMQ
+    publish_message('betting_queue', {
+        'event': 'bet_updated',
+        'bet_id': betting.id,
+        'match': betting.match,
+        'amount': betting.amount,
+        'odds': betting.odds
+    })
 
+    return betting
 
 # Delete a specific betting by ID
-@app.delete("/bets/delete/{betting_id}")
+@app.delete("/bettings/delete/{betting_id}")
 def delete_betting(betting_id: int, db: Session = Depends(get_db)):
-    betting = db.query(Bets).filter(Bets.id == betting_id).first()
+    betting = db.query(Betting).filter(Betting.id == betting_id).first()
     if not betting:
         raise HTTPException(status_code=404, detail="Betting not found")
     db.delete(betting)
     db.commit()
+
+    # Publication du message dans RabbitMQ
+    publish_message('betting_queue', {
+        'event': 'bet_deleted',
+        'bet_id': betting_id
+    })
+
     return {"message": "Betting deleted successfully"}
+
+# Consommateur RabbitMQ
+def callback(ch, method, properties, body):
+    print(f"Message reçu : {body}")
+    ch.basic_ack(delivery_tag=method.delivery_tag)
+
+def start_consumer():
+    try:
+        rabbitmq_host = os.getenv('RABBITMQ_HOST', 'message-broker')
+        connection = pika.BlockingConnection(pika.ConnectionParameters(rabbitmq_host))
+        channel = connection.channel()
+        channel.queue_declare(queue='betting_queue', durable=True)
+        channel.basic_consume(queue='betting_queue', on_message_callback=callback)
+        print("En attente des messages...")
+        channel.start_consuming()
+    except Exception as e:
+        print(f"Erreur lors du démarrage du consommateur : {str(e)}")
+
+# Démarrage du consommateur dans un thread séparé
+threading.Thread(target=start_consumer, daemon=True).start()

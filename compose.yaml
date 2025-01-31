@@ -30,6 +30,7 @@ services:
         condition: service_started
       message-broker:
         condition: service_healthy
+   
 
 
   auth-service:
