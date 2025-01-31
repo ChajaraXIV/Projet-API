@@ -13,6 +13,8 @@ SERVICE_URLS = {
     "notification": os.getenv("NOTIFICATION_SERVICE"),
     "odds": os.getenv("ODDS_SERVICE"),
     "payment": os.getenv("PAYMENT_SERVICE"),
+    "bookmakers": os.getenv("BOOKMAKER_SERVICE"),
+    "cards": os.getenv("CARDS_SERVICE"),
 }
 
 @app.get("/")
