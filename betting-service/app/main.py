@@ -49,67 +49,6 @@ class BettingUpdate(BaseModel):
 def read_root():
     return {"message": "Welcome to Betting Service"}
 
-# ✅ Ajouter un pari avec validation complète
-# @app.post("/bets/add")
-# def add_bet(bet: BettingCreate):
-#     conn = get_db_connection()
-#     cur = conn.cursor()
-
-#     try:
-#         # Vérification du odds_type
-#         if bet.odds_type not in VALID_ODDS_TYPE:
-#             raise HTTPException(status_code=400, detail="Type de pari invalide. Doit être 'Simple' ou 'Combine'.")
-
-#         # Vérification de l'existence de l'utilisateur
-#         cur.execute("SELECT id FROM users WHERE id = %s", (bet.user_id,))
-#         if not cur.fetchone():
-#             raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
-
-#         # Gérer le cas du pari simple ou combiné
-#         if isinstance(bet.match_ids, int):  # 🟢 Cas pari simple
-#             match_ids = [bet.match_ids]  # Convertir en liste pour un traitement uniforme
-#             odds_list = [bet.odds]
-#         else:  # 🔴 Cas pari combiné
-#             match_ids = bet.match_ids
-#             odds_list = bet.odds
-
-#         # Vérification de l'existence des matchs et calcul des cotes
-#         total_odds = 1
-#         for match_id, odd in zip(match_ids, odds_list):
-#             cur.execute("SELECT id FROM odds WHERE id = %s", (match_id,))
-#             if not cur.fetchone():
-#                 raise HTTPException(status_code=404, detail=f"Match ID {match_id} non trouvé")
-#             total_odds *= odd  # Multiplication des cotes pour un pari combiné
-
-#         # Calcul des gains potentiels
-#         winnings = bet.amount * total_odds
-
-#         # Stocker `match_ids` sous forme de string pour garder l'historique
-#         match_ids_str = ",".join(map(str, match_ids))
-#         odds_str = ",".join(map(str, odds_list))
-
-#         # Insertion du pari dans `bets`
-#         cur.execute(
-#             """
-#             INSERT INTO bets (user_id, match_ids, amount, odds_list, odds, odds_type, time, winnings)
-#             VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id
-#             """,
-#             (bet.user_id, match_ids_str, bet.amount, odds_str, total_odds, bet.odds_type, datetime.now(), winnings)
-#         )
-#         bet_id = cur.fetchone()["id"]
-
-#         conn.commit()
-#         return {"message": "Pari ajouté avec succès", "bet_id": bet_id}
-
-#     except psycopg2.IntegrityError:
-#         conn.rollback()
-#         raise HTTPException(status_code=400, detail="Erreur d'intégrité (vérifie user_id et match_id).")
-#     except Exception as e:
-#         conn.rollback()
-#         raise HTTPException(status_code=500, detail=str(e))
-#     finally:
-#         cur.close()
-#         conn.close()
 @app.post("/bets/add")
 def add_bet(bet: BettingCreate):
     conn = get_db_connection()
@@ -177,8 +116,6 @@ def add_bet(bet: BettingCreate):
         cur.close()
         conn.close()
 
-
-
 # ✅ Obtenir tous les paris
 @app.get("/bets/all")
 def get_all_bets():
@@ -220,55 +157,6 @@ def get_bet(bet_id: int):
     finally:
         cur.close()
         conn.close()
-
-# ✅ Mettre à jour un pari avec validation complète
-# @app.put("/bets/update/{bet_id}")
-# def update_bet(bet_id: int, bet: BettingUpdate):
-#     conn = get_db_connection()
-#     cur = conn.cursor()
-
-#     try:
-#         # Vérification si le pari existe
-#         cur.execute("SELECT * FROM bets WHERE id = %s", (bet_id,))
-#         existing_bet = cur.fetchone()
-#         if not existing_bet:
-#             raise HTTPException(status_code=404, detail="Pari non trouvé")
-
-#         # Vérification de l'existence du user_id et match_id
-#         cur.execute("SELECT id FROM users WHERE id = %s", (bet.user_id,))
-#         if not cur.fetchone():
-#             raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
-
-#         cur.execute("SELECT id FROM odds WHERE id = %s", (bet.match_id,))
-#         if not cur.fetchone():
-#             raise HTTPException(status_code=404, detail="Match non trouvé")
-
-#         # Vérification du odds_type
-#         if bet.odds_type not in VALID_ODDS_TYPE:
-#             raise HTTPException(status_code=400, detail="Type de pari invalide. Doit être 'Simple' ou 'Combine'.")
-
-#         # Calcul des gains
-#         winnings = bet.amount * bet.odds
-
-#         # Mise à jour du pari
-#         cur.execute(
-#             """
-#             UPDATE bets 
-#             SET user_id = %s, match_id = %s, amount = %s, odds = %s, odds_type = %s, time = CURRENT_TIMESTAMP, winnings = %s
-#             WHERE id = %s
-#             """,
-#             (bet.user_id, bet.match_id, bet.amount, bet.odds, bet.odds_type, winnings, bet_id)
-#         )
-#         conn.commit()
-
-#         return {"message": "Bet updated successfully"}
-
-#     except Exception as e:
-#         conn.rollback()
-#         raise HTTPException(status_code=500, detail=str(e))
-#     finally:
-#         cur.close()
-#         conn.close()
 
 # ✅ Supprimer un pari
 @app.delete("/bets/delete/{bet_id}")

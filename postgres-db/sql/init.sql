@@ -6,7 +6,6 @@ BEGIN
     END IF;
 END $$;
 
-
 -- Création table teams 
 CREATE TABLE IF NOT EXISTS teams (
     id SERIAL PRIMARY KEY,
@@ -51,7 +50,8 @@ VALUES
     ('Red Star Belgrade', 'SRB'),
     ('Slovan Bratislava', 'SVK'),
     ('Young Boys', 'SUI'),
-    ('Shakhtar Donetsk', 'UKR');    
+    ('Shakhtar Donetsk', 'UKR');
+ 
 -- Création odds
 DO $$ 
 BEGIN
@@ -79,10 +79,16 @@ CREATE TABLE IF NOT EXISTS odds (
     oddsx FLOAT NOT NULL
 );
 
-
 ALTER TABLE odds ADD COLUMN IF NOT EXISTS team1_id INT REFERENCES teams(id) ON DELETE CASCADE;
 ALTER TABLE odds ADD COLUMN IF NOT EXISTS team2_id INT REFERENCES teams(id) ON DELETE CASCADE;
 
+INSERT INTO odds (time, phase, goals1, goals2, state, odds1, odds2, oddsx, team1_id, team2_id)
+VALUES 
+    ('2025-02-01 18:00:00', 'Ligue', 0, 0, 'En attente', 2.5, 3.1, 3.2, 1, 2),
+    ('2025-02-02 20:00:00', 'Plays-off', 0, 0, 'En attente', 1.8, 2.9, 3.5, 3, 4),
+    ('2025-02-03 21:00:00', 'Quart-finale', 0, 0, 'En attente', 1.7, 2.5, 3.0, 5, 6),
+    ('2025-02-04 19:30:00', 'Demi-finale', 0, 0, 'En attente', 2.2, 2.8, 3.4, 7, 8),
+    ('2025-02-05 22:00:00', 'Finale', 0, 0, 'En attente', 1.6, 2.2, 3.8, 9, 10);
 
 --Creation table card 
 DO $$ 
@@ -112,16 +118,6 @@ VALUES
 ('Emily White', 5647382910564738, 'Mastercard', '2026-11-05', 987);
 
 
--- Création de la table bookmakers
-CREATE TABLE bookmakers (
-    id SERIAL PRIMARY KEY,
-    first_name VARCHAR(255) NOT NULL,
-    last_name VARCHAR(255) NOT NULL
-);
-
-INSERT INTO bookmakers (first_name, last_name) VALUES ('John', 'Doe');
-
-          
 
 -- Table users pour le service Auth
 CREATE TABLE IF NOT EXISTS users (
@@ -137,6 +133,16 @@ CREATE TABLE IF NOT EXISTS users (
 INSERT INTO users (email, password_hash, user_role, connected, registration_token, signin_allowed)
 VALUES ('test@example.com', 'hashed_password', 'user', FALSE, NULL, TRUE)
 RETURNING id;
+
+-- Création de la table bookmakers
+CREATE TABLE bookmakers (
+    id SERIAL PRIMARY KEY,
+    user_id INT REFERENCES users(id) ON DELETE CASCADE,
+    first_name VARCHAR(255) NOT NULL,
+    last_name VARCHAR(255) NOT NULL
+);
+
+INSERT INTO bookmakers (first_name, last_name) VALUES ('John', 'Doe');
 
 -- Table tokens pour gérer les tokens d'acces et de rafraîchissement
 CREATE TABLE IF NOT EXISTS tokens (
@@ -169,37 +175,6 @@ CREATE TABLE IF NOT EXISTS payments (
     time TIMESTAMP NOT NULL
 );
 
--- INSERT INTO payments (user_name, amount, payment_type, time) VALUES
---      ('Jadkab', 100.0, 'depot', '2025-01-10 17:45:00'),
---      ('HatimFil', 200.0, 'pari', '2025-01-10 17:46:00'),
---      ('IkramBad', 250.0, 'depot', '2025-01-10 17:47:00'),
---      ('AchrafMagh', 150.0, 'retrait', '2025-01-10 17:48:00');
-
-
--- Création bets
--- DO $$ 
--- BEGIN
---     IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'odds_type_enum') THEN
---         CREATE TYPE odds_type_enum AS ENUM ('Simple', 'Combine');
---     END IF;
--- END $$;
-
--- CREATE TABLE IF NOT EXISTS bets (
---     id SERIAL PRIMARY KEY,
---     amount FLOAT NOT NULL,
---     odds FLOAT NOT NULL,
---     odds_type odds_type_enum NOT NULL,
---     time TIMESTAMP NOT NULL,
---     winnings FLOAT NOT NULL
--- );
-
--- INSERT INTO bets(amount,odds,odds_type,time,winnings)
--- VALUES 
--- (25,3.5, 'Simple','2025-01-12 18:00:00',87.5),
--- (30,1.01, 'Combine','2025-01-12 18:00:00',30.3),
--- (10,1, 'Combine','2025-01-12 18:00:00',10),
--- (47,9.9, 'Simple','2025-01-12 18:00:00',465.3);
-
 -- Vérification et création du type ENUM odds_type_enum si non existant
 DO $$ 
 BEGIN
@@ -214,7 +189,7 @@ CREATE TABLE IF NOT EXISTS bets (
     user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     match_id INT NOT NULL REFERENCES odds(id) ON DELETE CASCADE,
     amount FLOAT NOT NULL CHECK (amount > 0),
-    odds FLOAT NOT NULL CHECK (odds > 0),
+    odds VARCHAR(200) NOT NULL CHECK (odds IN ('odds1', 'odds2', 'oddsx')),
     odds_type odds_type_enum NOT NULL,
     time TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
     winnings FLOAT NOT NULL CHECK (winnings >= 0)
@@ -224,12 +199,3 @@ ALTER TABLE bets DROP COLUMN IF EXISTS match_id;
 ALTER TABLE bets ADD COLUMN IF NOT EXISTS match_ids TEXT NOT NULL;
 ALTER TABLE bets ADD COLUMN IF NOT EXISTS odds_list TEXT NOT NULL;
 ALTER TABLE bets ADD COLUMN IF NOT EXISTS odds FLOAT NOT NULL;
-
-
--- Ajout de quelques paris pour tester
-INSERT INTO bets (user_id, match_id, amount, odds, odds_type, time, winnings)
-VALUES
-    (1, 1, 25.0, 3.5, 'Simple', '2025-01-12 18:00:00', 87.5),
-    (34, 2, 30.0, 1.01, 'Combine', '2025-01-12 18:00:00', 30.3),
-    (3, 3, 10.0, 1.0, 'Combine', '2025-01-12 18:00:00', 10.0),
-    (4, 1, 47.0, 9.9, 'Simple', '2025-01-12 18:00:00', 465.3);
