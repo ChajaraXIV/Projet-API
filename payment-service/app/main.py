@@ -1,227 +1,202 @@
-from zoneinfo import ZoneInfo
-from fastapi import FastAPI, HTTPException, Depends
-from sqlalchemy.orm import sessionmaker, Session
-from sqlalchemy import Column, Integer, String, Float, create_engine, DateTime
-from sqlalchemy.ext.declarative import declarative_base
-from pydantic import BaseModel, ConfigDict
-from dotenv import load_dotenv
-from typing import Optional
+import os
+import psycopg2
+from psycopg2.extras import RealDictCursor
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 from datetime import datetime
 
-import os
-
-# Initialize FastAPI app
+# Initialisation de FastAPI
 app = FastAPI()
 
-# Load environment variables
-load_dotenv()
+# Configuration de la base de données
+DB_HOST = os.getenv("DB_HOST")
+DB_USER = os.getenv("DB_USER")
+DB_NAME = os.getenv("DB_NAME")
+DB_PASSWORD = os.getenv("DB_PASSWORD")
 
-# Database configuration
-DATABASE_URL = os.getenv("DATABASE_URL")
-if not DATABASE_URL:
-    raise ValueError("DATABASE_URL is not set in the environment variables")
+# Connexion à PostgreSQL
+def get_db_connection():
+    return psycopg2.connect(
+        dbname=DB_NAME,
+        user=DB_USER,
+        password=DB_PASSWORD,
+        host=DB_HOST,
+        port=5432,
+        cursor_factory=RealDictCursor
+    )
 
-# Initialize database engine and session
-engine = create_engine(DATABASE_URL)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-# Create the Base for SQLAlchemy models
-Base = declarative_base()
-
-# SQLAlchemy model for the payments table
-class Payment(Base):
-    __tablename__ = "payments"
-
-    id = Column(Integer, primary_key=True, index=True)
-    user_name = Column(String, nullable=False)
-    amount = Column(Float, nullable=False)
-    payment_type = Column(String, nullable=False)
-    time = Column(DateTime, nullable=False)
-# Automatically create the payments table
-Base.metadata.create_all(bind=engine)
-
-# Dependency to get a database session
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-# Pydantic models for request and response validation
+# Modèle Pydantic pour la création et la mise à jour des paiements
 class PaymentCreate(BaseModel):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-    user_name: str
+    user_id: int
     amount: float
     payment_type: str
-
-class PaymentResponse(BaseModel):
-    id: int
-    user_name: str
-    amount: float
-    payment_type: str
-    time: datetime
-
-
-    class Config:
-        orm_mode = True
 
 class PaymentUpdate(BaseModel):
-    id: Optional[int] = None
-    user_name: Optional[str] = None
-    amount: Optional[float] = None
-    payment_type: Optional[str] = None
-    time: Optional[datetime]= None
+    user_id: int
+    amount: float
+    payment_type: str
 
+# Liste des types de paiement valides
+VALID_PAYMENT_TYPES = {"depot", "pari", "retrait", "gains", "pertes"}
 
-
-
-VALID_PAYMENT_TYPES = {"depot", "pari", "retrait","gains","pertes"}
-
-# Initialize FastAPI app
-app = FastAPI()
-
+# ✅ Route de test
 @app.get("/")
 def read_root():
-    return {"Fen": "zabi"}
+    return {"message": "Welcome to Payment Service"}
 
+# ✅ Ajouter un paiement avec validation complète
+@app.post("/payments/add")
+def add_payment(payment: PaymentCreate):
+    conn = get_db_connection()
+    cur = conn.cursor()
 
-# # ✅ Create a new Payment
-@app.post("/payments/add", response_model=PaymentResponse)
-def create_payment(payment: PaymentCreate, db: Session = Depends(get_db)):
-    # Validate the payment_type against the allowed values
-    if payment.payment_type not in VALID_PAYMENT_TYPES:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"Type de paiement non reconnu: '{payment.payment_type}'. "
-                "Les types valides sont: 'depot', 'pari', 'retrait', 'gains', 'pertes'."
-            )
-        )
-
-    # Validate the amount based on the payment_type
-    if payment.payment_type == "depot" and not (10 < payment.amount < 100000):
-        raise HTTPException(
-            status_code=400,
-            detail="Pour 'depot', le montant doit être supérieur à 10 et inférieur à 100000."
-        )
-    if payment.payment_type == "retrait" and not (10 < payment.amount < 200000):
-        raise HTTPException(
-            status_code=400,
-            detail="Pour 'retrait', le montant doit être supérieur à 10 et inférieur à 200000."
-        )
-    if payment.payment_type == "pari" and not (0.1 < payment.amount < 30000):
-        raise HTTPException(
-            status_code=400,
-            detail="Pour 'pari', le montant doit être supérieur à 10 et inférieur à 30000."
-        )
-    if payment.payment_type == "gains" and not (payment.amount < 200000):
-        raise HTTPException(
-            status_code=400,
-            detail="Pour 'gains', le montant doit être inférieur à 200000."
-        )
-    if payment.payment_type == "pertes" and not (payment.amount < 30000):
-        raise HTTPException(
-            status_code=400,
-            detail="Pour 'pertes', le montant doit être inférieur à 30000."
-        )
-
-    current_time = datetime.now(ZoneInfo("Europe/Paris"))
     try:
-        # Create the new payment entry
-        new_payment = Payment(
-        user_name = payment.user_name,
-        amount = payment.amount,
-        payment_type = payment.payment_type,
-        time = current_time
+        # Vérification du type de paiement
+        if payment.payment_type not in VALID_PAYMENT_TYPES:
+            raise HTTPException(status_code=400, detail=f"Type de paiement invalide: {payment.payment_type}")
+
+        # Vérification des contraintes de montant
+        if payment.payment_type == "depot" and not (10 < payment.amount < 100000):
+            raise HTTPException(status_code=400, detail="Pour 'depot', le montant doit être entre 10 et 100000.")
+        if payment.payment_type == "retrait" and not (10 < payment.amount < 200000):
+            raise HTTPException(status_code=400, detail="Pour 'retrait', le montant doit être entre 10 et 200000.")
+        if payment.payment_type == "pari" and not (0.1 < payment.amount < 30000):
+            raise HTTPException(status_code=400, detail="Pour 'pari', le montant doit être entre 0.1 et 30000.")
+        if payment.payment_type == "gains" and payment.amount >= 200000:
+            raise HTTPException(status_code=400, detail="Pour 'gains', le montant doit être inférieur à 200000.")
+        if payment.payment_type == "pertes" and payment.amount >= 30000:
+            raise HTTPException(status_code=400, detail="Pour 'pertes', le montant doit être inférieur à 30000.")
+
+        # Insertion dans la base de données
+        cur.execute(
+            """
+            INSERT INTO payments (user_id, amount, payment_type, time)
+            VALUES (%s, %s, %s, %s) RETURNING id
+            """,
+            (payment.user_id, payment.amount, payment.payment_type, datetime.now())
         )
-        db.add(new_payment)
-        db.commit()
-        db.refresh(new_payment)
-        return new_payment
+        payment_id = cur.fetchone()["id"]
+        conn.commit()
+
+        return {"message": "Payment added successfully", "payment_id": payment_id}
+
+    except psycopg2.IntegrityError:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail="Erreur d'intégrité (vérifie l'existence de l'user_id).")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Une erreur est survenue: {str(e)}")
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        cur.close()
+        conn.close()
 
+# ✅ Mettre à jour un paiement avec validation complète
+@app.put("/payments/update/{payment_id}")
+def update_payment(payment_id: int, payment: PaymentUpdate):
+    conn = get_db_connection()
+    cur = conn.cursor()
 
-# ✅Get all payments
-@app.get("/payments/all", response_model=list[PaymentResponse])
-def read_payments(db: Session = Depends(get_db)):
     try:
-        payments = db.query(Payment).all()
-        return payments
+        # Vérification si le paiement existe
+        cur.execute("SELECT * FROM payments WHERE id = %s", (payment_id,))
+        existing_payment = cur.fetchone()
+        if not existing_payment:
+            raise HTTPException(status_code=404, detail="Paiement non trouvé")
+
+        # Vérification des contraintes de montant
+        if payment.payment_type == "depot" and not (10 < payment.amount < 100000):
+            raise HTTPException(status_code=400, detail="Pour 'depot', le montant doit être entre 10 et 100000.")
+        if payment.payment_type == "retrait" and not (10 < payment.amount < 200000):
+            raise HTTPException(status_code=400, detail="Pour 'retrait', le montant doit être entre 10 et 200000.")
+        if payment.payment_type == "pari" and not (0.1 < payment.amount < 30000):
+            raise HTTPException(status_code=400, detail="Pour 'pari', le montant doit être entre 0.1 et 30000.")
+        if payment.payment_type == "gains" and payment.amount >= 200000:
+            raise HTTPException(status_code=400, detail="Pour 'gains', le montant doit être inférieur à 200000.")
+        if payment.payment_type == "pertes" and payment.amount >= 30000:
+            raise HTTPException(status_code=400, detail="Pour 'pertes', le montant doit être inférieur à 30000.")
+
+        # Mise à jour du paiement
+        cur.execute(
+            """
+            UPDATE payments 
+            SET user_id = %s, amount = %s, payment_type = %s, time = CURRENT_TIMESTAMP
+            WHERE id = %s
+            """,
+            (payment.user_id, payment.amount, payment.payment_type, payment_id)
+        )
+        conn.commit()
+
+        return {"message": "Payment updated successfully"}
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        cur.close()
+        conn.close()
 
-# ✅Get payment from id
-@app.get("/payments/{payment_id}",response_model=PaymentResponse)
-def read_payment(payment_id: int, db: Session = Depends(get_db)):
-    payment = db.query(Payment).filter(Payment.id == payment_id).first()
-    if not payment:
-        raise HTTPException(status_code=404, detail="Payment not found")
-    return payment
+# ✅ Supprimer un paiement
+@app.delete("/payments/delete/{payment_id}")
+def delete_payment(payment_id: int):
+    conn = get_db_connection()
+    cur = conn.cursor()
 
-# ✅Update a specific payment by ID
-@app.put("/payments/{payment_id}", response_model=PaymentResponse)
-def update_payment(payment_id: int, payment_data: PaymentUpdate, db: Session = Depends(get_db)):
     try:
-        # Récupérer le paiement existant
-        payment = db.query(Payment).filter(Payment.id == payment_id).first()
-        if not payment:
-            raise HTTPException(status_code=404, detail=f"Payment with ID {payment_id} not found")
+        # Vérifier si le paiement existe
+        cur.execute("SELECT id FROM payments WHERE id = %s", (payment_id,))
+        if not cur.fetchone():
+            raise HTTPException(status_code=404, detail="Paiement non trouvé")
 
-        # Vérifier si aucun champ n'a été fourni
-        updates = payment_data.dict(exclude_unset=True)
-        if not updates:
-            raise HTTPException(status_code=400, detail="At least one field must be provided for update")
+        # Suppression du paiement
+        cur.execute("DELETE FROM payments WHERE id = %s", (payment_id,))
+        conn.commit()
 
-        # Vérifier si l'utilisateur tente de modifier l'ID
-        if "id" in updates:
-            raise HTTPException(status_code=400, detail="Modification of 'id' is not allowed")
+        return {"message": "Payment deleted successfully"}
+
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        cur.close()
+        conn.close()
+
+# ✅ Obtenir tous les paiements
+@app.get("/payments/all")
+def get_all_payments():
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    try:
+        cur.execute("SELECT * FROM payments ORDER BY time DESC")
+        payments = cur.fetchall()
         
-        # Vérifier les contraintes sur le montant en fonction du type de paiement
-        if "payment_type" in updates or "amount" in updates:
-            new_payment_type = updates.get("payment_type", payment.payment_type)
-            new_amount = updates.get("amount", payment.amount)
+        if not payments:
+            raise HTTPException(status_code=404, detail="Aucun paiement trouvé")
+        
+        return {"payments": payments}
 
-            # Vérification des contraintes
-            if new_payment_type == "depot" and not (10 < new_amount < 100000):
-                raise HTTPException(status_code=400, detail="For 'depot', amount must be greater than 10 and less than 100000")
-            if new_payment_type == "retrait" and not (10 < new_amount < 200000):
-                raise HTTPException(status_code=400, detail="For 'retrait', amount must be greater than 10 and less than 200000")
-            if new_payment_type == "pari" and not (0.1 < new_amount < 30000):
-                raise HTTPException(status_code=400, detail="For 'pari', amount must be greater than 10 and less than 30000")
-            if new_payment_type == "gains" and not (new_amount < 200000):
-                raise HTTPException(status_code=400, detail="For 'gains', amount must be less than 200000")
-            if new_payment_type == "pertes" and not (new_amount < 30000):
-                raise HTTPException(status_code=400, detail="For 'pertes', amount must be less than 30000")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        cur.close()
+        conn.close()
 
-        # Vérifier le type de paiement s'il est envoyé
-        if "payment_type" in updates and new_payment_type not in VALID_PAYMENT_TYPES:
-            raise HTTPException(status_code=400, detail=f"Invalid payment_type: {new_payment_type}")
+@app.get("/payments/{payment_id}")
+def get_payment(payment_id: int):
+    conn = get_db_connection()
+    cur = conn.cursor()
 
-        # Mettre à jour uniquement les champs spécifiés
-        for field, value in updates.items():
-            setattr(payment, field, value)
+    try:
+        cur.execute("SELECT * FROM payments WHERE id = %s", (payment_id,))
+        payment = cur.fetchone()
 
-        # Enregistrer les changements dans la base de données
-        db.commit()
-        db.refresh(payment)
+        if not payment:
+            raise HTTPException(status_code=404, detail="Paiement non trouvé")
 
         return payment
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
-
-
-# ✅Delete a specific payment by ID
-@app.delete("/payments/delete/{payment_id}")
-def delete_betting(payment_id: int, db: Session = Depends(get_db)):
-    payment = db.query(Payment).filter(Payment.id == payment_id).first()
-    if not payment:
-        raise HTTPException(status_code=404, detail="Payment not found")
-    db.delete(payment)
-    db.commit()
-    return {"message": "Payment deleted successfully"}
-
-@app.get("/jad")
-def read_root():
-    return {"Fen": "zabi"}
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        cur.close()
+        conn.close()

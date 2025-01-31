@@ -6,19 +6,20 @@ BEGIN
     END IF;
 END $$;
 
-CREATE TABLE IF NOT EXISTS payments (
-    id SERIAL PRIMARY KEY,
-    user_name VARCHAR(255) NOT NULL,
-    amount FLOAT NOT NULL,
-    payment_type payment_type_enum NOT NULL,
-    time TIMESTAMP NOT NULL
-);
+-- CREATE TABLE IF NOT EXISTS payments (
+--     id SERIAL PRIMARY KEY,
+--     user_name VARCHAR(255) NOT NULL,
+--     amount FLOAT NOT NULL,
+--     payment_type payment_type_enum NOT NULL,
+--     time TIMESTAMP NOT NULL
+-- );
 
-INSERT INTO payments (user_name, amount, payment_type, time) VALUES
-    ('Jadkab', 100.0, 'depot', '2025-01-10 17:45:00'),
-    ('HatimFil', 200.0, 'pari', '2025-01-10 17:46:00'),
-    ('IkramBad', 250.0, 'depot', '2025-01-10 17:47:00'),
-    ('AchrafMagh', 150.0, 'retrait', '2025-01-10 17:48:00');
+
+-- INSERT INTO payments (user_name, amount, payment_type, time) VALUES
+--     ('Jadkab', 100.0, 'depot', '2025-01-10 17:45:00'),
+--     ('HatimFil', 200.0, 'pari', '2025-01-10 17:46:00'),
+--     ('IkramBad', 250.0, 'depot', '2025-01-10 17:47:00'),
+--     ('AchrafMagh', 150.0, 'retrait', '2025-01-10 17:48:00');
 
 
 -- Création odds
@@ -172,6 +173,10 @@ CREATE TABLE IF NOT EXISTS users (
     signin_allowed BOOLEAN NOT NULL DEFAULT FALSE
 );
 
+INSERT INTO users (email, password_hash, user_role, connected, registration_token, signin_allowed)
+VALUES ('test@example.com', 'hashed_password', 'user', FALSE, NULL, TRUE)
+RETURNING id;
+
 -- Table tokens pour gérer les tokens d'acces et de rafraîchissement
 CREATE TABLE IF NOT EXISTS tokens (
     id SERIAL PRIMARY KEY,
@@ -181,6 +186,7 @@ CREATE TABLE IF NOT EXISTS tokens (
     expires_at TIMESTAMP NOT NULL,
     valid BOOLEAN NOT NULL
 );
+
 
 -- Table des profils clients
 CREATE TABLE IF NOT EXISTS customers (
@@ -192,3 +198,18 @@ CREATE TABLE IF NOT EXISTS customers (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+
+CREATE TABLE IF NOT EXISTS payments (
+    id SERIAL PRIMARY KEY,
+    user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    amount FLOAT NOT NULL,
+    payment_type payment_type_enum NOT NULL,
+    time TIMESTAMP NOT NULL
+);
+
+-- INSERT INTO payments (user_name, amount, payment_type, time) VALUES
+--      ('Jadkab', 100.0, 'depot', '2025-01-10 17:45:00'),
+--      ('HatimFil', 200.0, 'pari', '2025-01-10 17:46:00'),
+--      ('IkramBad', 250.0, 'depot', '2025-01-10 17:47:00'),
+--      ('AchrafMagh', 150.0, 'retrait', '2025-01-10 17:48:00');
