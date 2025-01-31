@@ -10,6 +10,7 @@ import os
 import asyncio
 from .message_broker import AMQPBroker
 from fastapi.responses import HTMLResponse
+from typing import Optional
 
 # Initialisation de FastAPI
 app = FastAPI()
@@ -62,6 +63,10 @@ class SignIn(BaseModel):
     email: EmailStr
     password: str
 
+class Verify(BaseModel):
+    email: EmailStr
+    token : str
+
 class Token(BaseModel):
     access_token: str
     refresh_token: str
@@ -90,7 +95,6 @@ def create_refresh_token(data: dict):
 def create_registration_token(data: dict):
     to_encode = data.copy()
     return jwt.encode(to_encode, REGISTRATION_SECRET_KEY, algorithm="HS256")
-
 
 # Hachage de mot de passe
 def hash_password(password: str) -> str:
@@ -126,10 +130,10 @@ def create_admin_account():
         # Créer un compte admin
         cur.execute(
             """
-            INSERT INTO users (email, password_hash, user_role)
-            VALUES (%s, %s, %s)
+            INSERT INTO users (email, password_hash, user_role,signin_allowed)
+            VALUES (%s, %s, %s, %s)
             """,
-            (admin_email, hashed_password, "admin")
+            (admin_email, hashed_password, "admin", True)
         )
         conn.commit()
         print("Admin account created successfully.")
@@ -286,7 +290,6 @@ async def periodic_invalidation():
         await check_and_refresh_connected_users()
         await asyncio.sleep(10)
 
-
 # Routes
 @app.post("/auth/signup")
 def signup(user: SignUp):
@@ -295,36 +298,90 @@ def signup(user: SignUp):
     hashed_password = hash_password(user.password)
 
     try:
+        # Only allow customers to sign up via this route
+        if user.user_role != "customer":
+            raise HTTPException(status_code=403, detail="Only customers can sign up via this route")
+
+        signin_allowed = False  # Customers require email verification
+
+        # Insert into database
         cur.execute(
             """
-            INSERT INTO users (email, password_hash, user_role)
-            VALUES (%s, %s, %s) RETURNING id
+            INSERT INTO users (email, password_hash, user_role, signin_allowed)
+            VALUES (%s, %s, %s, %s) RETURNING id
             """,
-            (user.email, hashed_password, user.user_role)
+            (user.email, hashed_password, user.user_role, signin_allowed)
+        )
+        user_id = cur.fetchone()["id"]
+        conn.commit()
+
+        # Generate registration token for customers
+        registration_token = create_registration_token({"sub": user.email})
+        cur.execute(
+            """
+            UPDATE users SET registration_token = %s WHERE id = %s
+            """,
+            (registration_token, user_id)
         )
         conn.commit()
 
-        # Publier un message pour le service "Notification"
+        # Publish message to the notification service
         message = {
             "email": user.email,
-            "subject": "Confirmez votre inscription",
-            "token": "hhhh"
+            "subject": "Confirm Registration",
+            "token": registration_token,
+            "type": "optIn"
         }
         publish_message("notification_queue", message)
 
-    except psycopg2.IntegrityError as e:
+    except psycopg2.IntegrityError:
         conn.rollback()
-        if "unique constraint" in str(e):
-            raise HTTPException(status_code=400, detail="User already exists")
-        else:
-            raise HTTPException(status_code=500, detail="An unexpected error occurred")
+        raise HTTPException(status_code=400, detail="User already exists")
+    
     finally:
         cur.close()
         conn.close()
 
-    return {"message": "Account created successfully, please check your email for confirmation."}
+    return {"message": "Account created successfully. Check your email for confirmation."}
 
-@app.post("/auth/signin", response_model=Token)
+@app.post("/auth/add-bookmaker")
+def add_bookmaker(user: SignUp, current_user: dict = Depends(get_current_user)):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    hashed_password = hash_password(user.password)
+
+    try:
+        # Ensure only admins can create bookmaker accounts
+        if current_user["role"] != "admin":
+            raise HTTPException(status_code=403, detail="Only admin can create bookmaker accounts")
+
+        # Ensure the role is "bookmaker"
+        if user.user_role != "bookmaker":
+            raise HTTPException(status_code=403, detail="Only bookmaker accounts can be created via this route")
+
+        signin_allowed = True  # Bookmaker accounts are immediately active
+
+        # Insert into database
+        cur.execute(
+            """
+            INSERT INTO users (email, password_hash, user_role, signin_allowed)
+            VALUES (%s, %s, %s, %s) RETURNING id
+            """,
+            (user.email, hashed_password, user.user_role, signin_allowed)
+        )
+        conn.commit()
+
+    except psycopg2.IntegrityError:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail="User already exists")
+    
+    finally:
+        cur.close()
+        conn.close()
+
+    return {"message": "Bookmaker account created successfully."}
+
+@app.post("/auth/signin")
 def signin(credentials: SignIn):
     conn = get_db_connection()
     cur = conn.cursor()
@@ -332,7 +389,7 @@ def signin(credentials: SignIn):
     try:
         cur.execute(
             """
-            SELECT id, password_hash, user_role, connected, registration_token FROM users WHERE email = %s
+            SELECT id, password_hash, user_role, connected, registration_token, signin_allowed FROM users WHERE email = %s
             """,
             (credentials.email,)
         )
@@ -341,7 +398,7 @@ def signin(credentials: SignIn):
             raise HTTPException(status_code=401, detail="Invalid credentials")
         
         # Check if the user has verified their email (registration token should be NULL)
-        if user["registration_token"] is None:
+        if user["signin_allowed"]==False:
             raise HTTPException(status_code=403, detail="Email not verified. Please check your email.")
 
         # Vérifier si l'utilisateur est déjà connecté
@@ -460,7 +517,6 @@ def logout(request: LogoutRequest):
 
     return {"message": "Successfully logged out"}
 
-
 @app.post("/auth/refresh", response_model=Token)
 def refresh_token(request: RefreshTokenRequest):
     refresh_token = request.refresh_token
@@ -548,95 +604,46 @@ def delete_user(user_id: int, current_user: dict = Depends(get_current_user)):
 
     return {"message": f"User with ID {user_id} has been deleted successfully"}
 
-@app.get("/auth/verify-email/{email}", response_class=HTMLResponse)
-def verify_email(email: str):
-    """Generate a registration token and show a confirmation page."""
+@app.post("/auth/verify-email")
+def verify_email(userToVerif: Verify):
     conn = get_db_connection()
     cur = conn.cursor()
 
     try:
-        # Check if user exists
-        cur.execute("SELECT id FROM users WHERE email = %s", (email,))
+        cur.execute(
+            "SELECT id FROM users WHERE email = %s AND registration_token = %s", (userToVerif.email, userToVerif.token)
+        )
         user = cur.fetchone()
-
+        
         if not user:
-            return HTMLResponse(content="<h2>User not found</h2>", status_code=404)
-
-        # Generate a JWT registration token
-        registration_token = jwt.encode({"sub": email}, REGISTRATION_SECRET_KEY, algorithm="HS256")
-
+            return HTMLResponse(content="<h2>Invalid or expired token</h2>", status_code=400)
+        
         # Store the registration token in the database
         cur.execute(
             """
-            UPDATE users SET registration_token = %s WHERE id = %s
+            UPDATE users SET signin_allowed = TRUE WHERE id = %s
             """,
-            (registration_token, user["id"])
+            (user["id"],)
         )
         conn.commit()
 
-        # Return a confirmation HTML page
-        html_content = f"""
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Email Verified</title>
-            <style>
-                body {{
-                    font-family: Arial, sans-serif;
-                    text-align: center;
-                    padding: 50px;
-                    background-color: #f4f4f4;
-                }}
-                .container {{
-                    background: white;
-                    padding: 20px;
-                    border-radius: 8px;
-                    box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.1);
-                    max-width: 500px;
-                    margin: auto;
-                }}
-                h2 {{
-                    color: #007bff;
-                }}
-                p {{
-                    font-size: 16px;
-                    color: #333;
-                }}
-                .success {{
-                    color: green;
-                    font-weight: bold;
-                }}
-                .footer {{
-                    font-size: 12px;
-                    color: #888;
-                    margin-top: 20px;
-                }}
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <h2>Email Verified Successfully 🎉</h2>
-                <p class="success">Your email ({email}) has been successfully verified.</p>
-                <p>You can now log in to your account.</p>
-                <p class="footer">The Real Deal Team</p>
-            </div>
-        </body>
-        </html>
-        """
+        # Publier un message pour le service "Notification"
+        message = {
+            "email": userToVerif.email,
+            "subject": "Registration Confirmed!",
+            "type": "doubleOptIn"
+        }
+        publish_message("notification_queue", message)
 
-        return HTMLResponse(content=html_content)
-
-    except Exception as e:
-        conn.rollback()
-        return HTMLResponse(content=f"<h2>An error occurred: {str(e)}</h2>", status_code=500)
-
+    except psycopg2.IntegrityError as e:
+        raise HTTPException(status_code=500, detail="An unexpected error occurred")
     finally:
         cur.close()
         conn.close()
 
-@app.get("/auth/validate-registration-token/{token}")
+    return {"message": "Account confirmed, check your email for confirmation message."}
+
+@app.get("/auth/check-validity-registration-token/{token}")
 def validate_registration_token(token: str):
     conn = get_db_connection()
     cur = conn.cursor()

@@ -170,6 +170,13 @@ services:
       - 4444:80
     env_file:
       - ./bookmaker-service/.env
+    networks:
+      - tdl
+    depends_on:
+      postgres-db:
+        condition: service_started
+      message-broker:
+        condition: service_healthy
 
   customer-service:
     build:
